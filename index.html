@@ -1,0 +1,46 @@
+<html lang='en'>
+<head>
+  <title>Memoire</title>
+  <style>
+      .circle {
+          stroke-width: 1;
+      }
+      .circle.dragging {
+          stroke-width: 2;
+      }
+      .hovering {
+          stroke: rgba(255, 0, 0, 0.4);
+      }
+      .dragging {
+          stroke: red;
+      }
+      .draggable {
+          cursor: move;
+      }
+  </style>
+</head>
+<body>
+<svg
+  style='width: 100%;height: 100%;'
+  id='editor-window'
+  class='editor'
+>
+  <g id='shape-menu' pointer-events='all'>
+    <text dx='20' dy='20' style='user-select: none'>Objects</text>
+    <line x1='0' y1='30' x2='100' y2='30' stroke='black' />
+    <rect xmlns='http://www.w3.org/2000/svg'
+          x='0'
+          y='0'
+          width='100'
+          height='100%'
+          fill='none'
+          stroke='black'
+          class='shape-menu-area'
+          pointer-events='all' />
+    <circle class='template circle draggable' fill='none' stroke='black' r='30' cx='50' cy='70'></circle>
+    <line x1='0' y1='110' x2='100' y2='110' stroke='black' />
+  </g>
+</svg>
+<script src='index.js'></script>
+</body>
+</html>

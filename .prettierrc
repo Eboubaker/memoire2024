@@ -1,0 +1,9 @@
+printWidth: 60
+semi: true
+tabWidth: 2
+trailingComma: all
+arrowParens: avoid
+endOfLine: lf
+bracketSpacing: true
+singleQuote: true
+quoteProps: consistent
