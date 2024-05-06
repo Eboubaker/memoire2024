@@ -2,45 +2,176 @@
 <head>
   <title>Memoire</title>
   <style>
-      .circle {
+      .active-object {
           stroke-width: 1;
       }
-      .circle.dragging {
+
+      .object-circle:hover .anchor-point {
+          visibility: visible;
+      }
+
+      .variable-name {
+          font-weight: normal;
+          font-size: .7rem;
+          font-family: monospace;
+      }
+
+      .active-object.dragging {
           stroke-width: 2;
       }
-      .hovering {
-          stroke: rgba(255, 0, 0, 0.4);
+
+      .anchor-point:hover .highlight {
+          visibility: visible;
       }
-      .dragging {
+
+      .hovering .active-object {
+          /*stroke: rgba(255, 0, 0, 0.4);*/
+      }
+
+      .dragging .active-object {
           stroke: red;
       }
+
+      .selected .border {
+          visibility: visible;
+      }
+
+      .border {
+          fill: none;
+          stroke: #00a8ff;
+      }
+
       .draggable {
+          transition: 200ms visibility,
+          color;
           cursor: move;
+      }
+
+      .touch-action-none {
+          touch-action: none;
+      }
+
+      .trash-zone.can-accept {
+          stroke-width: 2;
+          stroke: red;
+      }
+
+      .arrow:hover .arrow-handle-start {
+          visibility: visible;
+      }
+
+      .arrow:hover .arrow-handle-end {
+          fill: #00a8ff;
+      }
+
+      .nodeName:hover {
+          stroke: red;
+      }
+
+      .nodeName {
+          cursor: pointer;
+          font-size: 0.7rem;
       }
   </style>
 </head>
-<body>
+<body style='margin: 0; padding: 0'>
 <svg
-  style='width: 100%;height: 100%;'
+  style='width: 100%; height: 100%; margin: 0'
   id='editor-window'
-  class='editor'
+  class='editor touch-action-none'
+  stroke='black'
 >
-  <g id='shape-menu' pointer-events='all'>
+  <g id='shape-menu' pointer-events='all' transform='translate(20, 0)'>
     <text dx='20' dy='20' style='user-select: none'>Objects</text>
-    <line x1='0' y1='30' x2='100' y2='30' stroke='black' />
-    <rect xmlns='http://www.w3.org/2000/svg'
-          x='0'
-          y='0'
-          width='100'
-          height='100%'
-          fill='none'
-          stroke='black'
-          class='shape-menu-area'
-          pointer-events='all' />
-    <circle class='template circle draggable' fill='none' stroke='black' r='30' cx='50' cy='70'></circle>
-    <line x1='0' y1='110' x2='100' y2='110' stroke='black' />
+    <line x1='0' y1='30' x2='100' y2='30' />
+    <rect
+      xmlns='http://www.w3.org/2000/svg'
+      x='0'
+      y='0'
+      width='100'
+      height='100%'
+      fill='none'
+      class='shape-menu-area trash-zone'
+      pointer-events='all'
+    />
+    <!-- this is just a fragment will be cloned when needed -->
+    <g class='anchor-fragment' visibility='hidden' cursor='pointer'>
+      <path d='M0 0 L6 6 M6 0 L0 6' style='stroke: #2e89ff'></path>
+      <circle
+        class='highlight'
+        cx='3'
+        cy='3'
+        r='6'
+        stroke='none'
+        style='fill: rgba(132, 255, 150, 0.55)'
+        visibility='hidden'
+      ></circle>
+    </g>
+    <g class='template object-circle draggable parentG touch-action-none selectable'>
+      <circle class='active-object' fill='none' r='30' cx='50' cy='70'></circle>
+      <rect
+        visibility='hidden'
+        stroke-dasharray='3 3'
+        class='border'
+        x='20'
+        y='40'
+        width='60'
+        height='60'
+      />
+      <text class='nodeName' x='50' y='70' dominant-baseline='middle' text-anchor='middle'>
+        Node
+      </text>
+      <!-- many anchor points will go here using javascript -->
+      <!-- they will have class 'anchor-point' -->
+    </g>
+    <line x1='0' y1='110' x2='100' y2='110' />
+    <g
+      transform='translate(20, 130)'
+      class='arrow selectable template draggable parentG touch-action-none'
+    >
+      <!--      <rect stroke-dasharray='3 3' class='border' x='-4' y='-7' width='70' height='15' />-->
+      <path class='arrow-line' d='M 0 0 L 60 0' stroke-width='3'></path>
+      <!-- Circle handle at the start of the line -->
+      <circle
+        visibility='hidden'
+        class='arrow-handle arrow-handle-start'
+        cx='0'
+        cy='0'
+        r='5'
+        fill='#00a8ff'
+        stroke='none'
+      ></circle>
+      <!-- Circle handle at the end of the line -->
+      <!--      <circle class='arrow-handle arrow-handle-end' cx='60' cy='60' r='5' fill='lime' stroke='none'></circle>-->
+      <path
+        class='arrow-handle arrow-handle-end'
+        d='M 53 -5 L 53 5 L 63 0 L 53 -5'
+        fill='black'
+        stroke='none'
+        style='z-index: 10'
+      ></path>
+
+      <g class='variable-name' transform='translate(0, 0)'>
+        <foreignObject height='1' width='1' style='overflow: visible'>
+          <p class='value' spellcheck='false' contenteditable='true' style='text-wrap: nowrap; margin: 0'>x</p>
+        </foreignObject>
+        <!--            <text x='0' y='0' >y</text>-->
+      </g>
+    </g>
   </g>
 </svg>
+<dialog id='editDialog'>
+  <h1 class='title'>EditNode</h1>
+  <div style='margin-bottom: .25rem'>
+    <label for='nodeName'>Name</label>
+    <input id='nodeName' value='' />
+  </div>
+  <textarea class='code' cols='30' rows='10' style='display: block'></textarea>
+  <div style='width: 100%; display: flex; justify-content: end; padding-top: 10px;'>
+    <button onclick='saveNode()'>Save</button>
+  </div>
+</dialog>
+<script src='interact.js'></script>
 <script src='index.js'></script>
 </body>
 </html>
