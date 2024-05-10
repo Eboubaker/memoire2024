@@ -1,7 +1,3 @@
-Array.prototype.unique = function () {
-  return [...new Set(this)]
-}
-
 console.log('hello world');
 const svgNamespace = 'http://www.w3.org/2000/svg';
 
@@ -10,9 +6,13 @@ const svgNamespace = 'http://www.w3.org/2000/svg';
  * @type {SVGSVGElement}
  */
 const editorWindow = document.getElementById('editor-window');
+const editDialog = document.getElementById('editDialog');
+
 const gCircle = editorWindow.querySelector('.object-circle');
-const centerX = editorWindow.querySelector('.object-circle>circle').cx.baseVal.value;
-const centerY = editorWindow.querySelector('.object-circle>circle').cy.baseVal.value;
+const centerX = editorWindow.querySelector('.object-circle>circle').cx.baseVal
+  .value;
+const centerY = editorWindow.querySelector('.object-circle>circle').cy.baseVal
+  .value;
 const radius = gCircle.querySelector('.active-object').getAttribute('r');
 const anchorPoints = [];
 const numberOfPoints = 8;
@@ -33,14 +33,91 @@ for (let i = 0; i < numberOfPoints; i++) {
   anchorPoint.setAttribute('transform', `translate(${anchorX} ${anchorY})`);
   gCircle.appendChild(anchorPoint);
 }
+require.config({ paths: { 'vs': 'min/vs' } });
+const randomId = Math.random().toString(36).substring(7);
+const randomIdDiv = document.querySelector('#editDialog .codeEditor');
+randomIdDiv.id = randomId;
+randomIdDiv.style.height = '300px';
+randomIdDiv.style.border = '1px solid black';
+let codeEditor;
+let Babel
+require(['http_unpkg.com_@babel_standalone@7.24.5_babel.js'], _Babel => {
+  Babel = _Babel;
+});
+require(['vs/editor/editor.main'], () => {
+  codeEditor = monaco.editor.create(document.getElementById(randomIdDiv.id), {
+    value: `test123`,
+    language: 'javascript',
+    theme: 'vs-light',
+    fontSize: 20,
+    minimap: {
+      enabled: false,
+    },
+    'glyphMargin': false,
+    'folding': false,
+    'lineNumbers': 'on',
+    'lineDecorationsWidth': 10,
+    'lineNumbersMinChars': 0,
+    scrollbar: {
+      horizontal: false,
+      vertical: false,
+    },
+    mouseWheelZoom: true,
+  });
+  editDialog.style.display = 'none';
+});
+
 let startX = 0,
   endX = 0;
 let startY = 0,
   endY = 0;
+const executeBtn = document.querySelector('#executeBtn');
+
+function onNodeSelected(node) {
+  validateNode(node);
+  executeBtn.style.display = 'block';
+}
+
+function onNodeDeselected(node) {
+  validateNode(node);
+  if ([...document.querySelectorAll('.selected')].length === 0) {
+    executeBtn.style.display = 'none';
+  }
+}
+
+executeBtn.addEventListener('click', () => {
+  getNodes().filter(n => n.matches('.selected')).forEach(executeNode);
+});
+
+function deleteNode(node) {
+  validateNode(node);
+  if (node.matches('.selected')) {
+    node.classList.remove('selected');
+    onNodeDeselected(node);
+  }
+  for (const p of node.querySelectorAll(
+    '.anchor-point[data-attached-handles]',
+  )) {
+    const handles = p
+      .getAttribute('data-attached-handles')
+      .split(',')
+      .filter((x) => x.length)
+      .map((id) =>
+        document.querySelector(`.arrow-handle[data-handle-id='${id}']`),
+      );
+    for (const h of handles) {
+      removeObject(h.closest('.arrow'));
+    }
+  }
+}
+
 interact(editorWindow)
   .on(['mousedown'], function(event) {
     console.log('editor onMouseDown', event);
-    document.querySelectorAll('.selected').forEach(e => e.classList.remove('selected'));
+    document
+      .querySelectorAll('.selected')
+      .forEach((e) => e.classList.remove('selected'));
+    executeBtn.style.display = 'none';
   })
   .draggable({
     listeners: {
@@ -96,7 +173,7 @@ function updateArrowPosition(handle, dx, dy) {
   // Update the position of the circle handle based on the drag
   const arrowLine = handle.closest('g').querySelector('.arrow-line');
   const d = arrowLine.getAttribute('d');
-  let [M, x1, y1, L, x2, y2] = d.split(' ').map(x => Number(x));
+  let [M, x1, y1, L, x2, y2] = d.split(' ').map((x) => Number(x));
   if (handle.classList.contains('arrow-handle-start')) {
     x1 += dx;
     y1 += dy;
@@ -126,10 +203,12 @@ function updateArrowPosition(handle, dx, dy) {
     { id: 'c4', dx: -20, dy: -20 },
   ];
   let newDots = [];
-  dotsOriginalPositions.forEach(dotInfo => {
+  dotsOriginalPositions.forEach((dotInfo) => {
     // Calculate new position based on theta and original offsets
-    const newX = x2 + dotInfo.dx * Math.cos(theta) - dotInfo.dy * Math.sin(theta);
-    const newY = y2 + dotInfo.dx * Math.sin(theta) + dotInfo.dy * Math.cos(theta);
+    const newX =
+      x2 + dotInfo.dx * Math.cos(theta) - dotInfo.dy * Math.sin(theta);
+    const newY =
+      y2 + dotInfo.dx * Math.sin(theta) + dotInfo.dy * Math.cos(theta);
 
     newDots.push({
       x: newX,
@@ -147,7 +226,10 @@ function updateArrowPosition(handle, dx, dy) {
       `L ${newDots[0].x} ${newDots[0].y}`,
     );
   const vn = handle.closest('g').querySelector('.variable-name');
-  vn.setAttribute('transform', 'translate(' + newDots[3].x + ',' + newDots[3].y + ')');
+  vn.setAttribute(
+    'transform',
+    'translate(' + newDots[3].x + ',' + newDots[3].y + ')',
+  );
 }
 
 let handlesCounter = 1;
@@ -185,9 +267,9 @@ function addArrowHandleInteraction(head) {
           let handles = p
             .getAttribute('data-attached-handles')
             .split(',')
-            .filter(x => x.length);
+            .filter((x) => x.length);
           if (handles.includes(handleId)) {
-            handles = handles.filter(x => x !== handleId);
+            handles = handles.filter((x) => x !== handleId);
             if (handles.length) {
               p.setAttribute('data-attached-handles', handles.join(','));
             } else {
@@ -195,15 +277,14 @@ function addArrowHandleInteraction(head) {
             }
           }
         }
-        event.interaction.interactable.options.drag.modifiers[0].options.targets = anchorPoints.map(
-          p => {
+        event.interaction.interactable.options.drag.modifiers[0].options.targets =
+          anchorPoints.map((p) => {
             const rect = p.getBoundingClientRect();
             return {
               x: rect.x + 5,
               y: rect.y + 5,
             };
-          },
-        );
+          });
         console.log(event.interaction.interactable);
       },
       move(event) {
@@ -270,9 +351,16 @@ function attachArrowHandle(handle, anchorPoint) {
   }
   let handles = anchorPoint.getAttribute('data-attached-handles') || '';
   const handleId = handle.getAttribute('data-handle-id');
-  handles = [...handles.split(',').filter(x => x.length), handleId].join(',');
+  handles = [...handles.split(',').filter((x) => x.length), handleId].join(',');
   anchorPoint.setAttribute('data-attached-handles', handles);
-  handle.setAttribute('data-attached-to', anchorPoint.getAttribute('data-anchor-id'));
+  handle.setAttribute(
+    'data-attached-to',
+    anchorPoint.getAttribute('data-anchor-id'),
+  );
+  const input = handle.closest('.arrow').querySelector('.variable-name .value');
+  input.focus();
+  input.selectionStart = 0;
+  input.selectionEnd = input.value.length;
 }
 
 function detachArrowHandle(handle, anchorPoint) {
@@ -288,94 +376,221 @@ function detachArrowHandle(handle, anchorPoint) {
   let handles = anchorPoint.getAttribute('data-attached-handles') || '';
   handles = handles
     .split(',')
-    .filter(x => x.length)
-    .filter(x => x !== handleId)
+    .filter((x) => x.length)
+    .filter((x) => x !== handleId)
     .join(',');
   anchorPoint.setAttribute('data-attached-handles', handles);
 }
 
 let anchorCount = 0;
 
+function onVariableNameChange(event) {
+  this.size = this.value.length - 1;
+  const arrow = this.closest('.arrow');
+  validateArrow(arrow);
+  const start = getStartingNode(arrow);
+  getNodeFunction()
+}
+
 function trySelectObject(object) {
   if (object.classList.contains('selectable')) {
-    document.querySelectorAll('.selected').forEach(e => e.classList.remove('selected'));
+    document
+      .querySelectorAll('.selected')
+      .forEach((e) => e.classList.remove('selected'));
     object.classList.add('selected');
+    onNodeSelected(object);
   }
 }
 
 let currentEdit = null;
 let nextNodeNumber = 1;
 
+function validateNode(node) {
+  if (!node.matches('.object-circle')) {
+    console.error('not a node', node);
+    throw new Error('not a node');
+  }
+}
+
+function validateArrow(arrow) {
+  if (!arrow.matches('.arrow')) {
+    console.error('not an arrow', arrow);
+    throw new Error('not an arrow');
+  }
+}
+
 function openNodeEditor(node) {
+  validateNode(node);
   currentEdit = node;
-  editDialog.showModal();
+  editDialog.style.display = 'block';
+  editDialog.style.pointerEvents = 'all';
   editDialog.querySelector('#nodeName').value = node.querySelector('.nodeName').innerHTML;
+  codeEditor.setValue(getNodeFunction(node));
 }
 
 function getOutgoingArrows(node) {
-  if (!node.matches('.object-circle')) {
-    console.error('not a node', node);
-    throw new Error('not a node');
-  }
+  validateNode(node);
   return [...node.querySelectorAll('.anchor-point')]
-    .map(e => e.getAttribute('data-attached-handles'))
-    .filter(att => !!att)
-    .flatMap(ids =>
-      ids.split(',').map(id => document.querySelector(`.arrow-handle-start[data-handle-id="${id}"]`)))
-    .filter(x => !!x)
-    .map(h => h.closest('.arrow'));
+    .map((e) => e.getAttribute('data-attached-handles'))
+    .filter((att) => !!att)
+    .flatMap((ids) =>
+      ids
+        .split(',')
+        .map((id) =>
+          document.querySelector(`.arrow-handle-start[data-handle-id="${id}"]`),
+        ),
+    )
+    .filter((x) => !!x)
+    .map((h) => h.closest('.arrow'));
 }
 
 function getIncomingArrows(node) {
-  if (!node.matches('.object-circle')) {
-    console.error('not a node', node);
-    throw new Error('not a node');
-  }
+  validateNode(node);
   return [...node.querySelectorAll('.anchor-point')]
-    .map(e => e.getAttribute('data-attached-handles'))
-    .filter(att => !!att)
-    .flatMap(ids =>
-      ids.split(',').map(id => document.querySelector(`.arrow-handle-end[data-handle-id="${id}"]`)))
-    .filter(x => !!x)
-    .map(h => h.closest('.arrow'));
+    .map((e) => e.getAttribute('data-attached-handles'))
+    .filter((att) => !!att)
+    .flatMap((ids) =>
+      ids
+        .split(',')
+        .map((id) =>
+          document.querySelector(`.arrow-handle-end[data-handle-id="${id}"]`),
+        ),
+    )
+    .filter((x) => !!x)
+    .map((h) => h.closest('.arrow'));
 }
 
 function getStartingNode(arrow) {
-  if (!arrow.matches('.arrow')) {
-    console.error('not an arrow', arrow);
-    throw new Error('not an arrow');
-  }
-  const id = arrow.querySelector('.arrow-handle-start').getAttribute('data-attached-to');
-  return document.querySelector(`.anchor-point[data-anchor-id="${id}"]`).closest('.object-circle');
+  validateArrow(arrow);
+  const id = arrow
+    .querySelector('.arrow-handle-start')
+    .getAttribute('data-attached-to');
+  return document
+    .querySelector(`.anchor-point[data-anchor-id="${id}"]`)
+    .closest('.object-circle');
 }
-function getArrowVariables(arrow) {
-  if (!arrow.matches('.arrow')) {
-    console.error('not an arrow', arrow);
-    throw new Error('not an arrow');
-  }
-  return arrow.querySelector('.variable-name .value').innerText.trim().split(',')
-}
-function getNodeInputs(node) {
-  if (!node.matches('.object-circle')) {
-    console.error('not a node', node);
-    throw new Error('not a node');
-  }
-  return getIncomingArrows(node).flatMap(getArrowVariables).unique();
-}
-function getNodeOutputs(node) {
-  if (!node.matches('.object-circle')) {
-    console.error('not a node', node);
-    throw new Error('not a node');
-  }
-  return getOutgoingArrows(node).flatMap(getArrowVariables).unique();
-}
+
 function getEndingNode(arrow) {
-  if (!arrow.matches('.arrow')) {
-    console.error('not an arrow', arrow);
-    throw new Error('not an arrow');
+  validateArrow(arrow);
+  const id = arrow
+    .querySelector('.arrow-handle-end')
+    .getAttribute('data-attached-to');
+  return document
+    .querySelector(`.anchor-point[data-anchor-id="${id}"]`)
+    .closest('.object-circle');
+}
+
+function getArrowVariables(arrow) {
+  validateArrow(arrow);
+  return arrow
+    .querySelector('.variable-name .value')
+    .value.trim()
+    .split(',');
+}
+
+function getNodeInputs(node) {
+  validateNode(node);
+  return [...new Set(getIncomingArrows(node).flatMap(getArrowVariables))];
+}
+
+function getNodeOutputs(node) {
+  validateNode(node);
+  return [...new Set(getOutgoingArrows(node).flatMap(getArrowVariables))];
+}
+
+function getNodes() {
+  return [...editorWindow.querySelectorAll('.object-circle:not(.template)')];
+}
+
+function isLeaf(node) {
+  validateNode(node);
+  return getNodeOutputs(node).length === 0;
+}
+
+function isRoot(node) {
+  validateNode(node);
+  return getNodeInputs(node).length === 0;
+}
+
+function getNodeName(node) {
+  validateNode(node);
+  return node.querySelector('.nodeName').innerHTML;
+}
+
+function executeNode(node) {
+  validateNode(node);
+  const name = getNodeName(node);
+  let func;
+  try {
+    const sourceCode = getNodeFunction(node);
+    const encodedSourceCode = btoa(sourceCode);
+    func = eval?.('(' + sourceCode + ')'
+      + `    //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
+  } catch (e) {
+    console.error(`syntax error in node "${name}"`, node);
+    throw e;
   }
-  const id = arrow.querySelector('.arrow-handle-end').getAttribute('data-attached-to');
-  return document.querySelector(`.anchor-point[data-anchor-id="${id}"]`).closest('.object-circle');
+  const deps = getNodeDependencies(node);
+  const inputs = getNodeInputs(node).map(v => {
+    const depNode = deps.find(d => d.variables.includes(v)).node;
+    return executeNode(depNode)[v];
+  });
+  let outputs;
+  try {
+    outputs = func(...inputs);
+  } catch (e) {
+    console.error(`error while executing node "${name}"`, node);
+    throw e;
+  }
+  console.log(`"${name}" outputs: `, outputs);
+  return outputs;
+}
+
+function getNodeDependencies(node) {
+  return getIncomingArrows(node).map(arr => {
+    return { variables: getArrowVariables(arr), node: getStartingNode(arr) };
+  });
+}
+
+function executeSimulation() {
+  getNodes()
+    .filter(isLeaf)
+    .forEach(executeNode);
+}
+
+function proxify(object, change) {
+  // we use unique field to determine if object is proxy
+  // we can't test this otherwise because typeof and
+  // instanceof is used on original object
+  if (object && object.__proxy__) {
+    return object;
+  }
+  const proxy = new Proxy(object, {
+    get: function(object, name) {
+      if (name === '__proxy__') {
+        return true;
+      }
+      return object[name];
+    },
+    set: function(object, name, value) {
+      const old = object[name];
+      if (value && typeof value == 'object') {
+        // new object need to be proxified as well
+        value = proxify(value, change);
+      }
+      object[name] = value;
+      change(object, name, old, value);
+      return true;
+    },
+  });
+  for (const prop in object) {
+    if (object.hasOwnProperty(prop) && object[prop] &&
+      typeof object[prop] == 'object') {
+      // proxify all child objects
+      object[prop] = proxify(object[prop], change);
+    }
+  }
+  return proxy;
 }
 
 function makeNewElementInteraction(target, template = undefined) {
@@ -383,7 +598,8 @@ function makeNewElementInteraction(target, template = undefined) {
   console.log(x, y);
   const myAnchorPoints = [];
   if (target.matches('.object-circle')) {
-    target.querySelector('.nodeName').innerHTML = 'Node (' + (nextNodeNumber++) + ')';
+    target.querySelector('.nodeName').innerHTML =
+      'Node (' + nextNodeNumber++ + ')';
     target.querySelector('.nodeName').onclick = function() {
       openNodeEditor(target);
     };
@@ -414,7 +630,7 @@ function makeNewElementInteraction(target, template = undefined) {
           },
         })
         .draggable({})
-        .on('dragstart', event => {
+        .on('dragstart', (event) => {
           // create new arrow, put its arrow-handle-end in the
           // position of this anchor, and move the current
           // interaction to the arrow-handle-start so it moves with the mouse
@@ -432,7 +648,10 @@ function makeNewElementInteraction(target, template = undefined) {
           const coords = GetSVGCoordinates(p);
           coords.x += 5;
           coords.y += 5;
-          const m = editorWindow.createSVGMatrix().translate(coords.x, coords.y).rotate(0); // Rotate if needed, based on the angle of the arrow line
+          const m = editorWindow
+            .createSVGMatrix()
+            .translate(coords.x, coords.y)
+            .rotate(0); // Rotate if needed, based on the angle of the arrow line
           // Create an SVGTransform object from this matrix
           const trans = arrow.transform.baseVal.createSVGTransformFromMatrix(m);
           arrow.transform.baseVal.clear(); // Remove any existing transformations
@@ -446,40 +665,42 @@ function makeNewElementInteraction(target, template = undefined) {
     addArrowHandleInteraction(target.querySelector('.arrow-handle-start'));
     addArrowHandleInteraction(target.querySelector('.arrow-handle-end'));
   }
-  const interaction = interact(target)
-    .on('mousedown', event => {
-      trySelectObject(event.currentTarget);
-      event.stopPropagation();
-    });
+  const interaction = interact(target).on('mousedown', (event) => {
+    trySelectObject(event.currentTarget);
+    event.stopPropagation();
+  });
   if (target.classList.contains('draggable')) {
-    interaction.draggable({
-      modifiers: [
-        interact.modifiers.restrict({
-          restriction: editorWindow,
-          elementRect: { top: 0, left: 0, bottom: 1, right: 1 },
-          endOnly: true,
-        }),
-      ],
-    })
-      .on('dragstart', event => {
+    interaction
+      .draggable({
+        modifiers: [
+          interact.modifiers.restrict({
+            restriction: editorWindow,
+            elementRect: { top: 0, left: 0, bottom: 1, right: 1 },
+            endOnly: true,
+          }),
+        ],
+      })
+      .on('dragstart', (event) => {
         event.currentTarget.classList.add('dragging');
-      }).on('dragend', event => {
-      event.currentTarget.classList.remove('dragging');
-    })
+      })
+      .on('dragend', (event) => {
+        event.currentTarget.classList.remove('dragging');
+      })
       .on(['dragmove'], function(event) {
         const target = event.currentTarget;
         x += event.dx;
         y += event.dy;
         if (target.classList.contains('selected')) {
-          for (const e of editorWindow.querySelectorAll('.selectable.selected')) {
-            if (e === target)
-              continue;
+          for (const e of editorWindow.querySelectorAll(
+            '.selectable.selected',
+          )) {
+            if (e === target) continue;
             moveObject(e, event.dx, event.dy);
           }
         } else {
           moveObject(target, event.dx, event.dy);
         }
-        myAnchorPoints.forEach(anchorPoint => {
+        myAnchorPoints.forEach((anchorPoint) => {
           anchorPoint.x += event.dx;
           anchorPoint.y += event.dy;
         });
@@ -487,18 +708,21 @@ function makeNewElementInteraction(target, template = undefined) {
         for (const p of target.querySelectorAll('.anchor-point')) {
           let handles = p.getAttribute('data-attached-handles');
           if (!handles) continue;
-          handles = handles.split(',').filter(x => x.length);
-          handles = handles.map(id => document.querySelector(`[data-handle-id='${id}']`));
+          handles = handles.split(',').filter((x) => x.length);
+          handles = handles.map((id) =>
+            document.querySelector(`[data-handle-id='${id}']`),
+          );
           for (const h of handles) {
             updateArrowPosition(h, event.dx, event.dy);
           }
         }
       });
   }
-  interaction.on('mouseover', event => {
-    event.currentTarget.classList.add('hovering');
-  })
-    .on('mouseout', event => {
+  interaction
+    .on('mouseover', (event) => {
+      event.currentTarget.classList.add('hovering');
+    })
+    .on('mouseout', (event) => {
       event.currentTarget.classList.remove('hovering');
     });
   target.interactions = target.interactions || [];
@@ -506,10 +730,37 @@ function makeNewElementInteraction(target, template = undefined) {
   return interaction;
 }
 
+function getNodeFunction(node) {
+  validateNode(node);
+  const inputs = getNodeInputs(node);
+  const outputs = getNodeOutputs(node);
+  let func = node.querySelector('.code textarea').value;
+  if (!func) {
+    if (!outputs.length) {
+      func = `function process(${inputs}) {
+  return {
+    
+  }
+}`;
+    } else {
+      func = `function process(${inputs}) {
+  return {
+    ${outputs.map((o) => o + ': null').join(',\n    ') + (outputs.length ? '\n' : '')}  }
+}`;
+    }
+  }
+  // update input names.
+  func = func.replace(/function\s*(.*?)\s*\((.*?)\)/, `function $1 (${getNodeInputs(node)})`);
+  return func;
+}
+
 function saveNode() {
   currentEdit.querySelector('.nodeName').innerHTML = editDialog.querySelector('#nodeName').value;
+  currentEdit.querySelector('.code textarea').textContent = codeEditor.getValue();
+  codeEditor.setValue('');
   currentEdit = null;
-  editDialog.close();
+  editDialog.style.display = 'none';
+  editDialog.style.pointerEvents = 'none';
 }
 
 function moveObject(object) {
@@ -523,16 +774,7 @@ function moveObject(object) {
 function removeObject(obj) {
   if (!editorWindow.contains(obj)) return;
   if (obj.classList.contains('object-circle')) {
-    for (const p of obj.querySelectorAll('.anchor-point[data-attached-handles]')) {
-      const handles = p
-        .getAttribute('data-attached-handles')
-        .split(',')
-        .filter(x => x.length)
-        .map(id => document.querySelector(`.arrow-handle[data-handle-id='${id}']`));
-      for (const h of handles) {
-        removeObject(h.closest('.arrow'));
-      }
-    }
+    deleteNode(obj);
   } else if (obj.classList.contains('arrow')) {
     const startHandle = obj.querySelector('.arrow-handle-start');
     const endHandle = obj.querySelector('.arrow-handle-end');
@@ -541,7 +783,9 @@ function removeObject(obj) {
   } else if (obj.classList.contains('arrow-handle')) {
     const anchorId = obj.getAttribute('data-attached-to');
     if (anchorId) {
-      const anchor = document.querySelector(`.anchor-point[data-anchor-id='${anchorId}']`);
+      const anchor = document.querySelector(
+        `.anchor-point[data-anchor-id='${anchorId}']`,
+      );
       detachArrowHandle(obj, anchor);
     }
   } else {
@@ -639,13 +883,17 @@ interact('.template.draggable')
         clone.classList.remove('selectable-template');
         clone.classList.add('selectable');
       }
-      interaction.start({ name: 'drag' }, makeNewElementInteraction(clone, original), clone);
+      interaction.start(
+        { name: 'drag' },
+        makeNewElementInteraction(clone, original),
+        clone,
+      );
     }
   })
-  .on('mouseover', event => {
+  .on('mouseover', (event) => {
     event.currentTarget.classList.add('hovering');
   })
-  .on('mouseout', event => {
+  .on('mouseout', (event) => {
     event.currentTarget.classList.remove('hovering');
   });
 document.querySelector('.code').addEventListener('keydown', function(e) {
@@ -655,12 +903,10 @@ document.querySelector('.code').addEventListener('keydown', function(e) {
     const end = this.selectionEnd;
 
     // set textarea value to: text before caret + tab + text after caret
-    this.value = this.value.substring(0, start) +
-      '   ' + this.value.substring(end);
+    this.value =
+      this.value.substring(0, start) + '   ' + this.value.substring(end);
 
     // put caret at right position again
-    this.selectionStart =
-      this.selectionEnd = start + 1;
+    this.selectionStart = this.selectionEnd = start + 1;
   }
 });
-

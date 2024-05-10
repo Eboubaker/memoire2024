@@ -5,7 +5,66 @@
       .active-object {
           stroke-width: 1;
       }
+      #actionBar {
+          width: 100%;
+          display: flex;
+          justify-content: end;
+      }
+      #executeBtn {
+          margin-right: 1rem;
+          display: none;
+      }
+      /*.variable-name .value, .variable-name .value:focus {*/
+      /*    border: none;*/
+      /*}*/
+      /*.variable-name .value-container  {*/
+      /*    width: min-content;*/
+      /*}*/
+      .variable-name .value {
+          font-family: monospace;
+      }
+      .variable-name .value {
+          border: none;
+          background-color: transparent;
+      }
+      /*.variable-name .value {*/
+      /*    width: 100%;*/
+      /*}*/
+      #editDialog {
+          z-index: 10;
+          width: 100%;
+          height: 100%;
+          position: absolute;
+          top: 0;
+          left: 0;
+          overflow: hidden;
+      }
 
+      #editDialog .overlay {
+          position: relative;
+          top: 0;
+          left: 0;
+          background-color: rgba(51, 51, 51, 0.2);
+          width: 100%;
+          height: 100%;
+      }
+      #editDialog .modal {
+          min-width: 60vw;
+          height: min-content;
+          background-color: white;
+          padding: 1rem;
+      }
+      #editDialog .modal-container {
+          position: absolute;
+          min-height: 0px;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+      }
       .object-circle:hover .anchor-point {
           visibility: visible;
       }
@@ -76,7 +135,7 @@
 </head>
 <body style='margin: 0; padding: 0'>
 <svg
-  style='width: 100%; height: 100%; margin: 0'
+  style='width: 100%; height: calc(100% - 100px); margin: 0'
   id='editor-window'
   class='editor touch-action-none'
   stroke='black'
@@ -121,6 +180,9 @@
       <text class='nodeName' x='50' y='70' dominant-baseline='middle' text-anchor='middle'>
         Node
       </text>
+      <foreignObject width="1" height="1" visibility="hidden" class="code">
+        <textarea></textarea>
+      </foreignObject>
       <!-- many anchor points will go here using javascript -->
       <!-- they will have class 'anchor-point' -->
     </g>
@@ -153,25 +215,83 @@
 
       <g class='variable-name' transform='translate(0, 0)'>
         <foreignObject height='1' width='1' style='overflow: visible'>
-          <p class='value' spellcheck='false' contenteditable='true' style='text-wrap: nowrap; margin: 0'>x</p>
+            <div class='value-container'>
+              <input size="1" oninput='onVariableNameChange' class='value' spellcheck='false' value='x'/>
+            </div>
         </foreignObject>
         <!--            <text x='0' y='0' >y</text>-->
       </g>
     </g>
   </g>
 </svg>
-<dialog id='editDialog'>
-  <h1 class='title'>EditNode</h1>
-  <div style='margin-bottom: .25rem'>
-    <label for='nodeName'>Name</label>
-    <input id='nodeName' value='' />
+<div id='actionBar'>
+  <button id='executeBtn'>Execute</button>
+</div>
+<div id='editDialog'>
+  <div class='overlay'></div>
+  <div class='modal-container'>
+    <div class='modal'>
+      <h3 class='title'>EditNode</h3>
+      <div style='margin-bottom: .25rem'>
+        <label for='nodeName'>Name</label>
+        <input id='nodeName' value='' />
+      </div>
+      <div style='position: relative'>
+        <div class="codeEditor"></div>
+      </div>
+      <div style='width: 100%; display: flex; justify-content: end; padding-top: 10px;'>
+        <button onclick='saveNode()'>Save</button>
+      </div>
+    </div>
   </div>
-  <textarea class='code' cols='30' rows='10' style='display: block'></textarea>
-  <div style='width: 100%; display: flex; justify-content: end; padding-top: 10px;'>
-    <button onclick='saveNode()'>Save</button>
+</div>
+<div id='resultsDialog'>
+  <div class='overlay'></div>
+  <div class='modal-container'>
+    <div class='modal'>
+      <h3 class='title'>Execution Result</h3>
+      <table class='results'>
+
+      </table>
+    </div>
   </div>
-</dialog>
+</div>
 <script src='interact.js'></script>
+<script src="min/vs/loader.js"></script>
+<script src="http_unpkg.com_@babel_standalone@7.24.5_babel.js"></script>
 <script src='index.js'></script>
+<script>
+
+</script>
+<script>
+  window.onload = function() {
+    const code = `function process(x, y) { return { z: x * y, x: 4 }; }`;
+
+    const result = Babel.transform(code, {
+      plugins: [{
+        visitor: {
+          Identifier(path) {
+            debugger;
+            // Check if 'x' is a function parameter and if it's not part of an object property
+            if (path.node.name === 'x' &&
+              path.scope.getBinding(path.node.name).kind === 'param' &&
+              !(path.parent.type === 'ObjectProperty' && path.parent.key === path.node)) {
+              path.node.name = 'a';
+            }
+          },
+          FunctionDeclaration(path) {
+            path.node.params.forEach(param => {
+              if (param.name === 'x') {
+                param.name = 'a';
+              }
+            });
+          },
+        }
+      }]
+    });
+
+    console.log(result.code);
+  };
+</script>
 </body>
 </html>
