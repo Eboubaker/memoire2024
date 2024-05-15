@@ -5,28 +5,23 @@
       .active-object {
           stroke-width: 1;
       }
+
       #actionBar {
           width: 100%;
           display: flex;
           justify-content: end;
       }
+
       #executeBtn {
           margin-right: 1rem;
           display: none;
       }
-      /*.variable-name .value, .variable-name .value:focus {*/
-      /*    border: none;*/
-      /*}*/
-      /*.variable-name .value-container  {*/
-      /*    width: min-content;*/
-      /*}*/
-      .variable-name .value {
-          font-family: monospace;
-      }
+
       .variable-name .value {
           border: none;
           background-color: transparent;
       }
+
       /*.variable-name .value {*/
       /*    width: 100%;*/
       /*}*/
@@ -48,12 +43,14 @@
           width: 100%;
           height: 100%;
       }
+
       #editDialog .modal {
           min-width: 60vw;
           height: min-content;
           background-color: white;
           padding: 1rem;
       }
+
       #editDialog .modal-container {
           position: absolute;
           min-height: 0px;
@@ -65,6 +62,7 @@
           justify-content: center;
           align-items: center;
       }
+
       .object-circle:hover .anchor-point {
           visibility: visible;
       }
@@ -129,14 +127,15 @@
 
       .nodeName {
           cursor: pointer;
-          font-size: 0.7rem;
       }
   </style>
 </head>
 <body style='margin: 0; padding: 0'>
 <svg
-  style='width: 100%; height: calc(100% - 100px); margin: 0'
+  xmlns='http://www.w3.org/2000/svg'
+  style='width: 100%; height: calc(100% - 100px); margin: 0; cursor: initial !important;'
   id='editor-window'
+  data-editor-id='1'
   class='editor touch-action-none'
   stroke='black'
 >
@@ -167,7 +166,7 @@
       ></circle>
     </g>
     <g class='template object-circle draggable parentG touch-action-none selectable'>
-      <circle class='active-object' fill='none' r='30' cx='50' cy='70'></circle>
+      <circle class='active-object' fill='transparent' r='30' cx='50' cy='70'></circle>
       <rect
         visibility='hidden'
         stroke-dasharray='3 3'
@@ -177,12 +176,13 @@
         width='60'
         height='60'
       />
-      <text class='nodeName' x='50' y='70' dominant-baseline='middle' text-anchor='middle'>
+      <text class='nodeName' x='50' y='70' dominant-baseline='middle' text-anchor='middle' style='font-size: 0.7rem;'>
         Node
       </text>
-      <foreignObject width="1" height="1" visibility="hidden" class="code">
-        <textarea></textarea>
-      </foreignObject>
+      <g class='code' data-code='' display='none' visibility='hidden'></g>
+<!--      <foreignObject style='display: none' x='50' y='50' width='1' height='1' visibility='hidden' class='code'>-->
+<!--        <textarea></textarea>-->
+<!--      </foreignObject>-->
       <!-- many anchor points will go here using javascript -->
       <!-- they will have class 'anchor-point' -->
     </g>
@@ -214,18 +214,20 @@
       ></path>
 
       <g class='variable-name' transform='translate(0, 0)'>
-        <foreignObject height='1' width='1' style='overflow: visible'>
-            <div class='value-container'>
-              <input size="1" oninput='onVariableNameChange' class='value' spellcheck='false' value='x'/>
-            </div>
+        <foreignObject height='1' width='1' style='overflow: visible' class='variable-editor'>
+          <div class='value-container'>
+            <input size='1' onchange='onVariableNameChange.call(this)' class='value' spellcheck='false'
+                   data-old-value='x' value='x' style='font-family: monospace;' />
+          </div>
         </foreignObject>
-        <!--            <text x='0' y='0' >y</text>-->
+        <text x='0' y='0' visibility='hidden' style='stroke-width: .2; font-family: monospace;'></text>
       </g>
     </g>
   </g>
 </svg>
 <div id='actionBar'>
   <button id='executeBtn'>Execute</button>
+  <button id='saveBtn'>save</button>
 </div>
 <div id='editDialog'>
   <div class='overlay'></div>
@@ -237,9 +239,10 @@
         <input id='nodeName' value='' />
       </div>
       <div style='position: relative'>
-        <div class="codeEditor"></div>
+        <div class='codeEditor'></div>
       </div>
       <div style='width: 100%; display: flex; justify-content: end; padding-top: 10px;'>
+        <div class='errors' style='color: red'></div>
         <button onclick='saveNode()'>Save</button>
       </div>
     </div>
@@ -257,41 +260,10 @@
   </div>
 </div>
 <script src='interact.js'></script>
-<script src="min/vs/loader.js"></script>
-<script src="http_unpkg.com_@babel_standalone@7.24.5_babel.js"></script>
+<script src='min/vs/loader.js'></script>
+<script src='http_cdnjs.cloudflare.com_ajax_libs_require.js_2.3.6_require.js'></script>
+<script src='http_unpkg.com_@babel_standalone@7.24.5_babel.js'></script>
+<script src='ast.js'></script>
 <script src='index.js'></script>
-<script>
-
-</script>
-<script>
-  window.onload = function() {
-    const code = `function process(x, y) { return { z: x * y, x: 4 }; }`;
-
-    const result = Babel.transform(code, {
-      plugins: [{
-        visitor: {
-          Identifier(path) {
-            debugger;
-            // Check if 'x' is a function parameter and if it's not part of an object property
-            if (path.node.name === 'x' &&
-              path.scope.getBinding(path.node.name).kind === 'param' &&
-              !(path.parent.type === 'ObjectProperty' && path.parent.key === path.node)) {
-              path.node.name = 'a';
-            }
-          },
-          FunctionDeclaration(path) {
-            path.node.params.forEach(param => {
-              if (param.name === 'x') {
-                param.name = 'a';
-              }
-            });
-          },
-        }
-      }]
-    });
-
-    console.log(result.code);
-  };
-</script>
 </body>
 </html>

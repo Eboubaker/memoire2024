@@ -2,16 +2,16 @@ console.log('hello world');
 const svgNamespace = 'http://www.w3.org/2000/svg';
 
 // noinspection JSValidateTypes
+const editDialog = document.getElementById('editDialog');
 /**
  * @type {SVGSVGElement}
  */
-const editorWindow = document.getElementById('editor-window');
-const editDialog = document.getElementById('editDialog');
+const mainEditor = document.querySelector('.editor');
 
-const gCircle = editorWindow.querySelector('.object-circle');
-const centerX = editorWindow.querySelector('.object-circle>circle').cx.baseVal
+const gCircle = mainEditor.querySelector('.object-circle');
+const centerX = mainEditor.querySelector('.object-circle>circle').cx.baseVal
   .value;
-const centerY = editorWindow.querySelector('.object-circle>circle').cy.baseVal
+const centerY = mainEditor.querySelector('.object-circle>circle').cy.baseVal
   .value;
 const radius = gCircle.querySelector('.active-object').getAttribute('r');
 const anchorPoints = [];
@@ -19,7 +19,7 @@ const numberOfPoints = 8;
 for (let i = 0; i < numberOfPoints; i++) {
   // Calculate angle in radians
   const angle = ((2 * Math.PI) / numberOfPoints) * i; // 45 degrees * i, converted to radians
-  const template = editorWindow.querySelector('.anchor-fragment');
+  const template = mainEditor.querySelector('.anchor-fragment');
   const anchorPoint = template.cloneNode(true);
   const templateX = template.querySelector('circle').cx.baseVal.value;
   const templateY = template.querySelector('circle').cy.baseVal.value;
@@ -40,13 +40,9 @@ randomIdDiv.id = randomId;
 randomIdDiv.style.height = '300px';
 randomIdDiv.style.border = '1px solid black';
 let codeEditor;
-let Babel
-require(['http_unpkg.com_@babel_standalone@7.24.5_babel.js'], _Babel => {
-  Babel = _Babel;
-});
 require(['vs/editor/editor.main'], () => {
   codeEditor = monaco.editor.create(document.getElementById(randomIdDiv.id), {
-    value: `test123`,
+    value: ``,
     language: 'javascript',
     theme: 'vs-light',
     fontSize: 20,
@@ -66,6 +62,10 @@ require(['vs/editor/editor.main'], () => {
   });
   editDialog.style.display = 'none';
 });
+
+function getOwnerWindow(obj) {
+  return obj.closest('.editor');
+}
 
 let startX = 0,
   endX = 0;
@@ -89,7 +89,7 @@ executeBtn.addEventListener('click', () => {
   getNodes().filter(n => n.matches('.selected')).forEach(executeNode);
 });
 
-function deleteNode(node) {
+function deleteNode(editorWindow, node) {
   validateNode(node);
   if (node.matches('.selected')) {
     node.classList.remove('selected');
@@ -103,7 +103,7 @@ function deleteNode(node) {
       .split(',')
       .filter((x) => x.length)
       .map((id) =>
-        document.querySelector(`.arrow-handle[data-handle-id='${id}']`),
+        editorWindow.querySelector(`.arrow-handle[data-handle-id='${id}']`),
       );
     for (const h of handles) {
       removeObject(h.closest('.arrow'));
@@ -111,62 +111,6 @@ function deleteNode(node) {
   }
 }
 
-interact(editorWindow)
-  .on(['mousedown'], function(event) {
-    console.log('editor onMouseDown', event);
-    document
-      .querySelectorAll('.selected')
-      .forEach((e) => e.classList.remove('selected'));
-    executeBtn.style.display = 'none';
-  })
-  .draggable({
-    listeners: {
-      end(event) {
-        editorWindow.querySelector('.selection-rect').remove();
-      },
-      start(event) {
-        console.log('start', event);
-        startX = event.client.x;
-        startY = event.client.y;
-        endX = startX;
-        endY = startY;
-        const rect = document.createElementNS(svgNamespace, 'rect');
-        rect.setAttribute('x', String(startX));
-        rect.setAttribute('y', String(startY));
-        rect.setAttribute('width', '0');
-        rect.setAttribute('height', '0');
-        rect.setAttribute('fill', '#50A8FF3D');
-        rect.classList.add('selection-rect');
-        editorWindow.appendChild(rect);
-      },
-      move(event) {
-        endX += event.dx;
-        endY += event.dy;
-        let x = endX < startX ? endX : startX;
-        let y = endY < startY ? endY : startY;
-        let w = Math.abs(endX - startX);
-        let h = Math.abs(endY - startY);
-
-        for (/**@type SVGGeometryElement*/ const e of document.querySelectorAll(
-          '.selectable:not(.template) .active-object',
-        )) {
-          let { x: ex, y: ey } = GetSVGCoordinates(e);
-          if (ex > x && ey > y && x + w > ex && y + h > ey) {
-            if (!e.closest('.selectable').classList.contains('selected')) {
-              e.closest('.selectable').classList.add('selected');
-            }
-          } else {
-            e.closest('.selectable').classList.remove('selected');
-          }
-        }
-        const rect = editorWindow.querySelector('.selection-rect');
-        rect.setAttribute('x', x);
-        rect.setAttribute('y', y);
-        rect.setAttribute('width', w);
-        rect.setAttribute('height', h);
-      },
-    },
-  });
 
 // Function to call when the circle is moved
 function updateArrowPosition(handle, dx, dy) {
@@ -225,16 +169,18 @@ function updateArrowPosition(handle, dx, dy) {
       `L ${newDots[2].x} ${newDots[2].y} ` +
       `L ${newDots[0].x} ${newDots[0].y}`,
     );
-  const vn = handle.closest('g').querySelector('.variable-name');
-  vn.setAttribute(
+  const input = handle.closest('.arrow').querySelector('.variable-name .value');
+  const rect = input.getBoundingClientRect();
+  const variableNameLabel = handle.closest('g').querySelector('.variable-name');
+  variableNameLabel.setAttribute(
     'transform',
-    'translate(' + newDots[3].x + ',' + newDots[3].y + ')',
+    'translate(' + (newDots[3].x) + ',' + (newDots[3].y) + ')',
   );
 }
 
 let handlesCounter = 1;
 
-function addArrowHandleInteraction(head) {
+function addArrowHandleInteraction(editorWindow, head) {
   console.log(anchorPoints);
   const handleId = String(handlesCounter++);
   head.setAttribute('data-handle-id', handleId);
@@ -263,7 +209,7 @@ function addArrowHandleInteraction(head) {
         //   c.setAttribute('fill', 'red');
         //   editorWindow.appendChild(c);
         // });
-        for (const p of document.querySelectorAll('[data-attached-handles]')) {
+        for (const p of editorWindow.querySelectorAll('[data-attached-handles]')) {
           let handles = p
             .getAttribute('data-attached-handles')
             .split(',')
@@ -340,14 +286,22 @@ function GetWindowCoordinates(someSVGElement) {
   return { x: svgRect.left, y: svgRect.top };
 }
 
-function attachArrowHandle(handle, anchorPoint) {
+function attachArrowHandle(editorWindow, handle, anchorPoint) {
+  const origH = handle;
+  const origA = anchorPoint;
   if (!(handle instanceof SVGElement)) {
     // look by id
-    handle = document.querySelector(`[data-handle-id="${handle}"]`);
+    handle = editorWindow.querySelector(`[data-handle-id="${handle}"]`);
   }
   if (!(anchorPoint instanceof SVGElement)) {
     // look by id
-    anchorPoint = document.querySelector(`[data-anchor-id="${anchorPoint}"]`);
+    anchorPoint = editorWindow.querySelector(`[data-anchor-id="${anchorPoint}"]`);
+  }
+  if (!handle) {
+    console.error('not a handle', handle, origH);
+  }
+  if (!anchorPoint) {
+    console.error('not an anchorPoint', anchorPoint, origA);
   }
   let handles = anchorPoint.getAttribute('data-attached-handles') || '';
   const handleId = handle.getAttribute('data-handle-id');
@@ -366,11 +320,11 @@ function attachArrowHandle(handle, anchorPoint) {
 function detachArrowHandle(handle, anchorPoint) {
   if (!(handle instanceof SVGElement)) {
     // look by id
-    handle = document.querySelector(`[data-handle-id="${handle}"]`);
+    handle = mainEditor.querySelector(`[data-handle-id="${handle}"]`);
   }
   if (!(anchorPoint instanceof SVGElement)) {
     // look by id
-    anchorPoint = document.querySelector(`[data-anchor-id="${anchorPoint}"]`);
+    anchorPoint = mainEditor.querySelector(`[data-anchor-id="${anchorPoint}"]`);
   }
   const handleId = handle.getAttribute('data-handle-id');
   let handles = anchorPoint.getAttribute('data-attached-handles') || '';
@@ -384,21 +338,48 @@ function detachArrowHandle(handle, anchorPoint) {
 
 let anchorCount = 0;
 
-function onVariableNameChange(event) {
-  this.size = this.value.length - 1;
+function onVariableNameChange() {
+  this.size = Math.max(1, this.value.length - 1);
   const arrow = this.closest('.arrow');
   validateArrow(arrow);
   const start = getStartingNode(arrow);
-  getNodeFunction()
+  const end = getEndingNode(arrow);
+  validateNode(start);
+  validateNode(end);
+  const value = this.value;
+  const oldValue = this.getAttribute('data-old-value');
+  const variables = value.split(',');
+  const oldVariables = oldValue.split(',');
+  const deletedVariables = oldVariables.filter(v => !variables.includes(v));
+  const addedVariables = variables.filter(v => !oldVariables.includes(v));
+  console.log("addedVariables", addedVariables);
+  console.log("deletedVariables", deletedVariables);
+  deletedVariables.forEach(v => {
+    setNodeFunction(start, removeVariableFromReturn(getNodeFunction(start), v));
+    setNodeFunction(end, removeFuncParam(getNodeFunction(end), v));
+  });
+  addedVariables.forEach(v => {
+    setNodeFunction(start, addVariableToFunctionReturnObject(getNodeFunction(start), v));
+    setNodeFunction(end, addFuncParam(getNodeFunction(end), v));
+  });
+  console.log('changed');
+  this.setAttribute('data-old-value', value);
+  return;
+}
+
+function isNode(elem) {
+  return elem.matches('.object-circle');
 }
 
 function trySelectObject(object) {
   if (object.classList.contains('selectable')) {
-    document
+    mainEditor
       .querySelectorAll('.selected')
       .forEach((e) => e.classList.remove('selected'));
     object.classList.add('selected');
-    onNodeSelected(object);
+    if (isNode(object)) {
+      onNodeSelected(object);
+    }
   }
 }
 
@@ -437,7 +418,7 @@ function getOutgoingArrows(node) {
       ids
         .split(',')
         .map((id) =>
-          document.querySelector(`.arrow-handle-start[data-handle-id="${id}"]`),
+          mainEditor.querySelector(`.arrow-handle-start[data-handle-id="${id}"]`),
         ),
     )
     .filter((x) => !!x)
@@ -453,7 +434,7 @@ function getIncomingArrows(node) {
       ids
         .split(',')
         .map((id) =>
-          document.querySelector(`.arrow-handle-end[data-handle-id="${id}"]`),
+          mainEditor.querySelector(`.arrow-handle-end[data-handle-id="${id}"]`),
         ),
     )
     .filter((x) => !!x)
@@ -465,7 +446,7 @@ function getStartingNode(arrow) {
   const id = arrow
     .querySelector('.arrow-handle-start')
     .getAttribute('data-attached-to');
-  return document
+  return mainEditor
     .querySelector(`.anchor-point[data-anchor-id="${id}"]`)
     .closest('.object-circle');
 }
@@ -499,7 +480,7 @@ function getNodeOutputs(node) {
 }
 
 function getNodes() {
-  return [...editorWindow.querySelectorAll('.object-circle:not(.template)')];
+  return [...mainEditor.querySelectorAll('.object-circle:not(.template)')];
 }
 
 function isLeaf(node) {
@@ -593,7 +574,7 @@ function proxify(object, change) {
   return proxy;
 }
 
-function makeNewElementInteraction(target, template = undefined) {
+function makeNewElementInteraction(editorWindow, target, template = undefined) {
   let { x, y } = getTransformation(template);
   console.log(x, y);
   const myAnchorPoints = [];
@@ -626,7 +607,7 @@ function makeNewElementInteraction(target, template = undefined) {
           ondragleave: function(event) {
           },
           ondrop: function(event) {
-            attachArrowHandle(event.relatedTarget, event.currentTarget);
+            attachArrowHandle(editorWindow, event.relatedTarget, event.currentTarget);
           },
         })
         .draggable({})
@@ -634,17 +615,17 @@ function makeNewElementInteraction(target, template = undefined) {
           // create new arrow, put its arrow-handle-end in the
           // position of this anchor, and move the current
           // interaction to the arrow-handle-start so it moves with the mouse
-          const template = document.querySelector('.arrow.template');
+          const template = editorWindow.querySelector('.arrow.template');
           const arrow = template.cloneNode(true);
           arrow.classList.remove('template', 'draggable');
           editorWindow.appendChild(arrow);
-          makeNewElementInteraction(arrow, template);
+          makeNewElementInteraction(editorWindow, arrow, template);
           const head = arrow.querySelector('.arrow-handle-end');
           const start = arrow.querySelector('.arrow-handle-start');
           start.setAttribute('data-attached-to', anchorId);
           const p = event.target;
           updateArrowPosition(head, -65, 0);
-          attachArrowHandle(start, p);
+          attachArrowHandle(editorWindow, start, p);
           const coords = GetSVGCoordinates(p);
           coords.x += 5;
           coords.y += 5;
@@ -662,11 +643,11 @@ function makeNewElementInteraction(target, template = undefined) {
     }
   }
   if (target.matches('.arrow')) {
-    addArrowHandleInteraction(target.querySelector('.arrow-handle-start'));
-    addArrowHandleInteraction(target.querySelector('.arrow-handle-end'));
+    addArrowHandleInteraction(editorWindow, target.querySelector('.arrow-handle-start'));
+    addArrowHandleInteraction(editorWindow, target.querySelector('.arrow-handle-end'));
   }
   const interaction = interact(target).on('mousedown', (event) => {
-    trySelectObject(event.currentTarget);
+    trySelectObject(editorWindow, event.currentTarget);
     event.stopPropagation();
   });
   if (target.classList.contains('draggable')) {
@@ -710,7 +691,7 @@ function makeNewElementInteraction(target, template = undefined) {
           if (!handles) continue;
           handles = handles.split(',').filter((x) => x.length);
           handles = handles.map((id) =>
-            document.querySelector(`[data-handle-id='${id}']`),
+            editorWindow.querySelector(`[data-handle-id='${id}']`),
           );
           for (const h of handles) {
             updateArrowPosition(h, event.dx, event.dy);
@@ -730,33 +711,57 @@ function makeNewElementInteraction(target, template = undefined) {
   return interaction;
 }
 
+/**
+ * @returns Error|true
+ */
+function checkSyntaxError(func) {
+  try {
+    const encodedSourceCode = btoa(func);
+    eval?.('(' + func + ')'
+      + `    //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
+    return true;
+  } catch (e) {
+    return e;
+  }
+}
+
+function setNodeFunction(node, func) {
+  validateNode(node);
+  if (typeof func !== 'string') {
+    console.error('\'func\' value not a string: ', func);
+    throw new Error('not a string: ' + func);
+  }
+  node.querySelector('.code').setAttribute('data-code', func);
+}
+
+function validateFunc(func) {
+  // todo: check code has 1 function and 1 return object...
+  return true;
+}
+
 function getNodeFunction(node) {
   validateNode(node);
-  const inputs = getNodeInputs(node);
-  const outputs = getNodeOutputs(node);
-  let func = node.querySelector('.code textarea').value;
+  let func = node.querySelector('.code').getAttribute('data-code');
   if (!func) {
-    if (!outputs.length) {
-      func = `function process(${inputs}) {
-  return {
-    
+    const inputs = getNodeInputs(node);
+    const outputs = getNodeOutputs(node);
+    func = generateFunction('process', inputs, outputs);
   }
-}`;
-    } else {
-      func = `function process(${inputs}) {
-  return {
-    ${outputs.map((o) => o + ': null').join(',\n    ') + (outputs.length ? '\n' : '')}  }
-}`;
-    }
-  }
-  // update input names.
-  func = func.replace(/function\s*(.*?)\s*\((.*?)\)/, `function $1 (${getNodeInputs(node)})`);
   return func;
 }
 
 function saveNode() {
   currentEdit.querySelector('.nodeName').innerHTML = editDialog.querySelector('#nodeName').value;
-  currentEdit.querySelector('.code textarea').textContent = codeEditor.getValue();
+  const code = codeEditor.getValue();
+  const error = checkSyntaxError(code) || validateFunc(code);
+  if (error !== true) {
+    const p = getOwnerWindow(currentEdit).ownerDocument.createElement('p');
+    p.innerText = '' + error;
+    editDialog.querySelector('.errors').appendChild(p);
+    return;
+  }
+  [...editDialog.querySelector('.errors').children].forEach(e => e.remove());
+  currentEdit.querySelector('.code').setAttribute('data-code', code);
   codeEditor.setValue('');
   currentEdit = null;
   editDialog.style.display = 'none';
@@ -767,28 +772,25 @@ function moveObject(object) {
   // TODO:
 }
 
-/**
- *
- * @param obj SVGElement
- */
-function removeObject(obj) {
+function removeObject(editorWindow, obj) {
   if (!editorWindow.contains(obj)) return;
   if (obj.classList.contains('object-circle')) {
     deleteNode(obj);
   } else if (obj.classList.contains('arrow')) {
     const startHandle = obj.querySelector('.arrow-handle-start');
     const endHandle = obj.querySelector('.arrow-handle-end');
-    removeObject(startHandle);
-    removeObject(endHandle);
+    removeObject(editorWindow, startHandle);
+    removeObject(editorWindow, endHandle);
   } else if (obj.classList.contains('arrow-handle')) {
     const anchorId = obj.getAttribute('data-attached-to');
     if (anchorId) {
-      const anchor = document.querySelector(
+      const anchor = editorWindow.querySelector(
         `.anchor-point[data-anchor-id='${anchorId}']`,
       );
       detachArrowHandle(obj, anchor);
     }
   } else {
+    console.error('how to remove this?: ', obj);
     throw new Error('how to remove this?: ' + obj);
   }
   obj.remove();
@@ -797,116 +799,217 @@ function removeObject(obj) {
 window.addEventListener('keydown', function(event) {
   // check del key
   if (event.key === 'Delete') {
-    for (const selected of document.querySelectorAll('.selected')) {
+    for (const selected of mainEditor.querySelectorAll('.selected')) {
       removeObject(selected);
     }
   }
 });
 
 function dropArrow(arrow) {
-  document.querySelectorAll('.anchor-point');
+  mainEditor.querySelectorAll('.anchor-point');
 }
 
-interact(document.querySelector('.trash-zone')).dropzone({
-  // Require a 75% element overlap for a drop to be possible
-  overlap: 0.75,
-  ondragenter: function(event) {
-    let draggableElement = event.relatedTarget;
-    if (!draggableElement.classList.contains('parentG'))
-      draggableElement = draggableElement.closest('.parentG');
-    if (draggableElement.getAttribute('left-zone')) {
-      const dropzoneElement = event.target;
-      dropzoneElement.classList.add('can-accept');
-      draggableElement.classList.add('can-drop');
-    }
-  },
-  ondragleave: function(event) {
-    let draggableElement = event.relatedTarget;
-    if (!draggableElement.classList.contains('parentG'))
-      draggableElement = draggableElement.closest('.parentG');
-    event.currentTarget.classList.remove('can-accept');
-    draggableElement.classList.remove('can-drop');
-    draggableElement.setAttribute('left-zone', 'true');
-  },
-  ondrop: function(event) {
-    let draggableElement = event.relatedTarget;
-    if (!draggableElement.classList.contains('parentG'))
-      draggableElement = draggableElement.closest('.parentG');
-    event.currentTarget.classList.remove('can-accept');
-    removeObject(draggableElement);
-    // for (const p of draggableElement.querySelectorAll('.anchor-point[data-attached-handles]')) {
-    //   const handles = p.getAttribute('data-attached-handles')
-    //     .split(',')
-    //     .filter(x => x.length)
-    //     .map(id => document.querySelector(`.arrow-handle[data-handle-id='${id}']`));
-    //   for (const h of handles) {
-    //     detachArrowHandle(h, p);
-    //     let other;
-    //     if (h.matches('.arrow-handle-start')) {
-    //       other = h.closest('.parentG').querySelector('.arrow-handle-end');
-    //     } else {
-    //       other = h.closest('.parentG').querySelector('.arrow-handle-start');
-    //     }
-    //     const otherId = other.getAttribute('data-attached-to');
-    //     if (otherId) {
-    //       const otherAnchor = document.querySelector(`.anchor-point[data-anchor-id='${otherId}']`);
-    //       detachArrowHandle(other, otherAnchor);
-    //     }
-    //     h.closest('.parentG').remove();
-    //   }
-    // }
-    // draggableElement.remove();
-  },
-});
-interact('.template.draggable')
-  .draggable({
-    modifiers: [
-      interact.modifiers.restrict({
-        restriction: editorWindow,
-        elementRect: { top: 0, left: 0, bottom: 1, right: 1 },
-        endOnly: true,
-      }),
-    ],
-  })
-  .on(['move', 'drag', 'dragstart'], function(event) {
-    let interaction = event.interaction;
-    if (
-      interaction.pointerIsDown &&
-      !interaction.interacting() &&
-      event.currentTarget.classList.contains('template')
-    ) {
-      let original = event.currentTarget;
-      let clone = event.currentTarget.cloneNode(true);
-      clone.classList.remove('template');
-      original.parentElement.appendChild(clone);
-      if (clone.classList.contains('selectable-template')) {
-        clone.classList.remove('selectable-template');
-        clone.classList.add('selectable');
-      }
-      interaction.start(
-        { name: 'drag' },
-        makeNewElementInteraction(clone, original),
-        clone,
-      );
-    }
-  })
-  .on('mouseover', (event) => {
-    event.currentTarget.classList.add('hovering');
-  })
-  .on('mouseout', (event) => {
-    event.currentTarget.classList.remove('hovering');
-  });
-document.querySelector('.code').addEventListener('keydown', function(e) {
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const start = this.selectionStart;
-    const end = this.selectionEnd;
+function saveEditor(editor) {
+  console.log('Save');
+  editor = beforeEditorSave(editor);
+  const blob = new Blob([editor.outerHTML], { type: 'image/svg' });
+  const link = document.createElement('a');
+  link.download = 'project.svg';
+  link.href = window.URL.createObjectURL(blob);
+  link.onclick = (e) => {
+    setTimeout(() => window.URL.revokeObjectURL(link.href), 1500);
+  };
+  link.click();
+  link.remove();
+}
 
-    // set textarea value to: text before caret + tab + text after caret
-    this.value =
-      this.value.substring(0, start) + '   ' + this.value.substring(end);
+document.querySelector('#saveBtn').addEventListener('click', () => saveEditor(mainEditor));
 
-    // put caret at right position again
-    this.selectionStart = this.selectionEnd = start + 1;
+function beforeEditorSave(editor) {
+  editor = editor.cloneNode(true);
+  editor.querySelector('#shape-menu').remove();
+  for(const v of [...editor.querySelectorAll('.arrow .variable-name')]) {
+    const variable = v.querySelector('.value').value;
+    v.querySelector('foreignObject').remove();
+    v.querySelector('text').textContent = variable;
+    v.querySelector('text').setAttribute('visibility', 'visible');
   }
-});
+  return editor;
+}
+
+function afterEditorLoad(editor) {
+  editor.appendChild(mainEditor.querySelector('#shape-menu').cloneNode(true));
+  setupEditor(editor);
+  return editor;
+}
+
+function setupEditor(editor) {
+  for (const e of [...editor.querySelectorAll('.template.draggable')]) {
+    interact(e)
+      .draggable({
+        modifiers: [
+          interact.modifiers.restrict({
+            restriction: editor,
+            elementRect: { top: 0, left: 0, bottom: 1, right: 1 },
+            endOnly: true,
+          }),
+        ],
+      })
+      .on(['move', 'drag', 'dragstart'], function(event) {
+        let interaction = event.interaction;
+        if (
+          interaction.pointerIsDown &&
+          !interaction.interacting() &&
+          event.currentTarget.classList.contains('template')
+        ) {
+          let original = event.currentTarget;
+          let clone = event.currentTarget.cloneNode(true);
+          clone.classList.remove('template');
+          editor.appendChild(clone);
+          if (clone.classList.contains('selectable-template')) {
+            clone.classList.remove('selectable-template');
+            clone.classList.add('selectable');
+          }
+          interaction.start(
+            { name: 'drag' },
+            makeNewElementInteraction(editor, clone, original),
+            clone,
+          );
+        }
+      })
+      .on('mouseover', (event) => {
+        event.currentTarget.classList.add('hovering');
+      })
+      .on('mouseout', (event) => {
+        event.currentTarget.classList.remove('hovering');
+      });
+  }
+  interact(editor.querySelector('.trash-zone')).dropzone({
+    // Require a 75% element overlap for a drop to be possible
+    overlap: 0.75,
+    ondragenter: function(event) {
+      let draggableElement = event.relatedTarget;
+      if (!draggableElement.classList.contains('parentG'))
+        draggableElement = draggableElement.closest('.parentG');
+      if (draggableElement.getAttribute('left-zone')) {
+        const dropzoneElement = event.target;
+        dropzoneElement.classList.add('can-accept');
+        draggableElement.classList.add('can-drop');
+      }
+    },
+    ondragleave: function(event) {
+      let draggableElement = event.relatedTarget;
+      if (!draggableElement.classList.contains('parentG'))
+        draggableElement = draggableElement.closest('.parentG');
+      event.currentTarget.classList.remove('can-accept');
+      draggableElement.classList.remove('can-drop');
+      draggableElement.setAttribute('left-zone', 'true');
+    },
+    ondrop: function(event) {
+      let draggableElement = event.relatedTarget;
+      if (!draggableElement.classList.contains('parentG'))
+        draggableElement = draggableElement.closest('.parentG');
+      event.currentTarget.classList.remove('can-accept');
+      removeObject(draggableElement);
+      // for (const p of draggableElement.querySelectorAll('.anchor-point[data-attached-handles]')) {
+      //   const handles = p.getAttribute('data-attached-handles')
+      //     .split(',')
+      //     .filter(x => x.length)
+      //     .map(id => document.querySelector(`.arrow-handle[data-handle-id='${id}']`));
+      //   for (const h of handles) {
+      //     detachArrowHandle(h, p);
+      //     let other;
+      //     if (h.matches('.arrow-handle-start')) {
+      //       other = h.closest('.parentG').querySelector('.arrow-handle-end');
+      //     } else {
+      //       other = h.closest('.parentG').querySelector('.arrow-handle-start');
+      //     }
+      //     const otherId = other.getAttribute('data-attached-to');
+      //     if (otherId) {
+      //       const otherAnchor = document.querySelector(`.anchor-point[data-anchor-id='${otherId}']`);
+      //       detachArrowHandle(other, otherAnchor);
+      //     }
+      //     h.closest('.parentG').remove();
+      //   }
+      // }
+      // draggableElement.remove();
+    },
+  });
+  interact(editor)
+    .on(['mousedown'], function(event) {
+      console.log('editor onMouseDown', event);
+      editor
+        .querySelectorAll('.selected')
+        .forEach((e) => e.classList.remove('selected'));
+      executeBtn.style.display = 'none';
+    })
+    .draggable({
+      listeners: {
+        end(event) {
+          editor.querySelector('.selection-rect').remove();
+        },
+        start(event) {
+          console.log('start', event);
+          startX = event.client.x;
+          startY = event.client.y;
+          endX = startX;
+          endY = startY;
+          const rect = document.createElementNS(svgNamespace, 'rect');
+          rect.setAttribute('x', String(startX));
+          rect.setAttribute('y', String(startY));
+          rect.setAttribute('width', '0');
+          rect.setAttribute('height', '0');
+          rect.setAttribute('fill', '#50A8FF3D');
+          rect.classList.add('selection-rect');
+          editor.appendChild(rect);
+        },
+        move(event) {
+          endX += event.dx;
+          endY += event.dy;
+          let x = endX < startX ? endX : startX;
+          let y = endY < startY ? endY : startY;
+          let w = Math.abs(endX - startX);
+          let h = Math.abs(endY - startY);
+
+          for (/**@type SVGGeometryElement*/ const e of document.querySelectorAll(
+            '.selectable:not(.template) .active-object',
+          )) {
+            let { x: ex, y: ey } = GetSVGCoordinates(e);
+            const sel = e.closest('.selectable');
+            if (!sel)
+              continue;
+            if (ex > x && ey > y && x + w > ex && y + h > ey) {
+              if (!sel.classList.contains('selected')) {
+                sel.classList.add('selected');
+                if (isNode(sel)) {
+                  onNodeSelected(sel);
+                }
+              }
+            } else {
+              sel.classList.remove('selected');
+              if (isNode(sel)) {
+                onNodeDeselected(sel);
+              }
+            }
+          }
+          const rect = editor.querySelector('.selection-rect');
+          rect.setAttribute('x', x);
+          rect.setAttribute('y', y);
+          rect.setAttribute('width', w);
+          rect.setAttribute('height', h);
+        },
+      },
+    }).styleCursor(false);
+}
+
+function loadEditor(file) {
+  let editor;
+  const div = document.createElement('div');
+  div.innerHTML = file.readAsText();
+  editor = afterEditorLoad(editor);
+  document.querySelector('.editor').remove();
+  document.prepend(editor);
+  return editor;
+}
+
+setupEditor(mainEditor);

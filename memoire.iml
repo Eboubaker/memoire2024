@@ -7,5 +7,6 @@
     <orderEntry type="library" name="interact-js" level="application" />
     <orderEntry type="library" name="monaco-editor" level="application" />
     <orderEntry type="library" name="@babel/standalone" level="application" />
+    <orderEntry type="library" name="require.js" level="application" />
   </component>
 </module>
