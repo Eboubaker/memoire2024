@@ -286,6 +286,28 @@ function GetWindowCoordinates(someSVGElement) {
   return { x: svgRect.left, y: svgRect.top };
 }
 
+function checkHandle(handle) {
+  if (!handle.matches('.arrow-handle')) {
+    console.error('not a handle', handle);
+    throw new Error('not a handle');
+  }
+}
+
+function isArrowStart(handle) {
+  checkHandle(handle);
+  return handle.matches('.arrow-handle-start');
+}
+
+function isArrowEnd(handle) {
+  checkHandle(handle);
+  return handle.matches('.arrow-handle-end');
+}
+
+function getArrow(handle) {
+  checkHandle(handle);
+  return handle.closest('.arrow');
+}
+
 function attachArrowHandle(editorWindow, handle, anchorPoint) {
   const origH = handle;
   const origA = anchorPoint;
@@ -311,10 +333,17 @@ function attachArrowHandle(editorWindow, handle, anchorPoint) {
     'data-attached-to',
     anchorPoint.getAttribute('data-anchor-id'),
   );
-  const input = handle.closest('.arrow').querySelector('.variable-name .value');
+  const arrow = getArrow(handle);
+  const input = arrow.querySelector('.variable-name .value');
   input.focus();
   input.selectionStart = 0;
   input.selectionEnd = input.value.length;
+  if (isArrowEnd(handle)) {
+    const start = getStartingNode(arrow);
+    const end = getEndingNode(arrow);
+    setNodeFunction(start, addVariableToFunctionReturnObject(getNodeFunction(start), input.value));
+    setNodeFunction(end, addFuncParam(getNodeFunction(end), input.value));
+  }
 }
 
 function detachArrowHandle(handle, anchorPoint) {
@@ -352,8 +381,8 @@ function onVariableNameChange() {
   const oldVariables = oldValue.split(',');
   const deletedVariables = oldVariables.filter(v => !variables.includes(v));
   const addedVariables = variables.filter(v => !oldVariables.includes(v));
-  console.log("addedVariables", addedVariables);
-  console.log("deletedVariables", deletedVariables);
+  console.log('addedVariables', addedVariables);
+  console.log('deletedVariables', deletedVariables);
   deletedVariables.forEach(v => {
     setNodeFunction(start, removeVariableFromReturn(getNodeFunction(start), v));
     setNodeFunction(end, removeFuncParam(getNodeFunction(end), v));
@@ -498,14 +527,17 @@ function getNodeName(node) {
   return node.querySelector('.nodeName').innerHTML;
 }
 
-function executeNode(node) {
+function executeNode(node, environment) {
+  environment = environment || {};
   validateNode(node);
   const name = getNodeName(node);
   let func;
   try {
     const sourceCode = getNodeFunction(node);
     const encodedSourceCode = btoa(sourceCode);
-    func = eval?.('(' + sourceCode + ')'
+    func = eval?.(`(function runner(env, inputs) {
+        return (${sourceCode})(...inputs)
+      })`
       + `    //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
   } catch (e) {
     console.error(`syntax error in node "${name}"`, node);
@@ -514,17 +546,21 @@ function executeNode(node) {
   const deps = getNodeDependencies(node);
   const inputs = getNodeInputs(node).map(v => {
     const depNode = deps.find(d => d.variables.includes(v)).node;
-    return executeNode(depNode)[v];
+    return executeNode(depNode, environment)[v];
   });
   let outputs;
   try {
-    outputs = func(...inputs);
+    outputs = func(environment, inputs);
   } catch (e) {
     console.error(`error while executing node "${name}"`, node);
     throw e;
   }
   console.log(`"${name}" outputs: `, outputs);
   return outputs;
+}
+
+async function executeNodeAsync(node) {
+
 }
 
 function getNodeDependencies(node) {
@@ -584,6 +620,7 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
     target.querySelector('.nodeName').onclick = function() {
       openNodeEditor(target);
     };
+    setNodeFunction(target, generateFunction('process', [], []));
     myAnchorPoints.push(
       ...[...target.querySelectorAll('.anchor-point>circle')],
       // .map(e => {
@@ -676,10 +713,10 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
             '.selectable.selected',
           )) {
             if (e === target) continue;
-            moveObject(e, event.dx, event.dy);
+            moveObjects(e, event.dx, event.dy);
           }
         } else {
-          moveObject(target, event.dx, event.dy);
+          moveObjects(target, event.dx, event.dy);
         }
         myAnchorPoints.forEach((anchorPoint) => {
           anchorPoint.x += event.dx;
@@ -741,13 +778,12 @@ function validateFunc(func) {
 
 function getNodeFunction(node) {
   validateNode(node);
-  let func = node.querySelector('.code').getAttribute('data-code');
-  if (!func) {
-    const inputs = getNodeInputs(node);
-    const outputs = getNodeOutputs(node);
-    func = generateFunction('process', inputs, outputs);
+  const code = node.querySelector('.code').getAttribute('data-code');
+  if (!code) {
+    console.error('no code', node);
+    throw new Error('no code');
   }
-  return func;
+  return code;
 }
 
 function saveNode() {
@@ -768,7 +804,7 @@ function saveNode() {
   editDialog.style.pointerEvents = 'none';
 }
 
-function moveObject(object) {
+function moveObjects(objects, dx, dy) {
   // TODO:
 }
 
@@ -828,7 +864,7 @@ document.querySelector('#saveBtn').addEventListener('click', () => saveEditor(ma
 function beforeEditorSave(editor) {
   editor = editor.cloneNode(true);
   editor.querySelector('#shape-menu').remove();
-  for(const v of [...editor.querySelectorAll('.arrow .variable-name')]) {
+  for (const v of [...editor.querySelectorAll('.arrow .variable-name')]) {
     const variable = v.querySelector('.value').value;
     v.querySelector('foreignObject').remove();
     v.querySelector('text').textContent = variable;
