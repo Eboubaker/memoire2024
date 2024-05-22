@@ -106,7 +106,7 @@ function deleteNode(editorWindow, node) {
         editorWindow.querySelector(`.arrow-handle[data-handle-id='${id}']`),
       );
     for (const h of handles) {
-      removeObject(h.closest('.arrow'));
+      removeObject(editorWindow, h.closest('.arrow'));
     }
   }
 }
@@ -215,12 +215,7 @@ function addArrowHandleInteraction(editorWindow, head) {
             .split(',')
             .filter((x) => x.length);
           if (handles.includes(handleId)) {
-            handles = handles.filter((x) => x !== handleId);
-            if (handles.length) {
-              p.setAttribute('data-attached-handles', handles.join(','));
-            } else {
-              p.removeAttribute('data-attached-handles');
-            }
+            detachArrowHandle(head, p);
           }
         }
         event.interaction.interactable.options.drag.modifiers[0].options.targets =
@@ -285,9 +280,14 @@ function GetWindowCoordinates(someSVGElement) {
   const svgRect = someSVGElement.getBoundingClientRect();
   return { x: svgRect.left, y: svgRect.top };
 }
-
+function isHandle(obj) {
+  return obj instanceof Node && obj.matches('.arrow-handle')
+}
+function isAnchorPoint(obj) {
+  return obj instanceof Node && obj.matches('.anchor-point')
+}
 function checkHandle(handle) {
-  if (!handle.matches('.arrow-handle')) {
+  if (!isHandle(handle)) {
     console.error('not a handle', handle);
     throw new Error('not a handle');
   }
@@ -362,7 +362,16 @@ function detachArrowHandle(handle, anchorPoint) {
     .filter((x) => x.length)
     .filter((x) => x !== handleId)
     .join(',');
-  anchorPoint.setAttribute('data-attached-handles', handles);
+  if(handles.length)
+    anchorPoint.setAttribute('data-attached-handles', handles);
+  else
+    anchorPoint.removeAttribute('data-attached-handles');
+  const arrow = getArrow(handle);
+  const end = getEndingNode(arrow);
+  console.log("detach");
+  getArrowVariables(arrow).forEach(v => {
+    setNodeFunction(end, removeFuncParam(getNodeFunction(end), v));
+  })
 }
 
 let anchorCount = 0;
@@ -400,9 +409,9 @@ function isNode(elem) {
   return elem.matches('.object-circle');
 }
 
-function trySelectObject(object) {
+function trySelectObject(editorWindow, object) {
   if (object.classList.contains('selectable')) {
-    mainEditor
+    editorWindow
       .querySelectorAll('.selected')
       .forEach((e) => e.classList.remove('selected'));
     object.classList.add('selected');
@@ -533,11 +542,12 @@ function executeNode(node, environment) {
   const name = getNodeName(node);
   let func;
   try {
-    const sourceCode = getNodeFunction(node);
-    const encodedSourceCode = btoa(sourceCode);
-    func = eval?.(`(function runner(env, inputs) {
-        return (${sourceCode})(...inputs)
-      })`
+    const nodeFunction = getNodeFunction(node);
+    const encodedSourceCode = btoa(nodeFunction);
+    const sourceCode = `(function runner(env, inputs) {
+        return (${nodeFunction})(...inputs)
+      })`;
+    func = eval?.(sourceCode
       + `    //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
   } catch (e) {
     console.error(`syntax error in node "${name}"`, node);
@@ -621,6 +631,7 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
       openNodeEditor(target);
     };
     setNodeFunction(target, generateFunction('process', [], []));
+
     myAnchorPoints.push(
       ...[...target.querySelectorAll('.anchor-point>circle')],
       // .map(e => {
@@ -644,7 +655,8 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
           ondragleave: function(event) {
           },
           ondrop: function(event) {
-            attachArrowHandle(editorWindow, event.relatedTarget, event.currentTarget);
+            if(isHandle(event.relatedTarget) && isAnchorPoint(event.currentTarget))
+              attachArrowHandle(editorWindow, event.relatedTarget, event.currentTarget);
           },
         })
         .draggable({})
@@ -805,13 +817,18 @@ function saveNode() {
 }
 
 function moveObjects(objects, dx, dy) {
-  // TODO:
+  if(!Array.isArray(objects))
+    objects = [objects];
+  for(const object of objects) {
+
+  }
 }
 
 function removeObject(editorWindow, obj) {
+  console.log("rem", obj);
   if (!editorWindow.contains(obj)) return;
   if (obj.classList.contains('object-circle')) {
-    deleteNode(obj);
+    deleteNode(editorWindow, obj);
   } else if (obj.classList.contains('arrow')) {
     const startHandle = obj.querySelector('.arrow-handle-start');
     const endHandle = obj.querySelector('.arrow-handle-end');
@@ -823,7 +840,8 @@ function removeObject(editorWindow, obj) {
       const anchor = editorWindow.querySelector(
         `.anchor-point[data-anchor-id='${anchorId}']`,
       );
-      detachArrowHandle(obj, anchor);
+      if(anchor)
+        detachArrowHandle(obj, anchor);
     }
   } else {
     console.error('how to remove this?: ', obj);
@@ -836,8 +854,17 @@ window.addEventListener('keydown', function(event) {
   // check del key
   if (event.key === 'Delete') {
     for (const selected of mainEditor.querySelectorAll('.selected')) {
-      removeObject(selected);
+      removeObject(mainEditor, selected);
     }
+  }
+  if ((event.key === 'C' || event.key === 'c') && event.ctrlKey) {
+    document.querySelector('#clipboard').childNodes.forEach(el => el.remove());
+    let count = 0;
+    for (const selected of mainEditor.querySelectorAll('.selected')) {
+      document.querySelector('#clipboard').appendChild(selected.cloneNode(true));
+      count++;
+    }
+    console.log("copied", count, "elements");
   }
 });
 

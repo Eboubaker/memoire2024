@@ -1,7 +1,7 @@
 <html lang='en'>
 <head>
   <title>Memoire</title>
-  <style>
+  <style lang='scss'>
       .active-object {
           stroke-width: 1;
       }
@@ -11,7 +11,13 @@
           display: flex;
           justify-content: end;
       }
-
+      .arrow.selected {
+        stroke: #00a8ff;
+      }
+      .arrow.selected .arrow-handle {
+            fill: #00a8ff;
+            stroke: black;
+      }
       #executeBtn {
           margin-right: 1rem;
           display: none;
@@ -127,10 +133,20 @@
 
       .nodeName {
           cursor: pointer;
+          user-select: none;
+      }
+      .variable-name {
+          user-select:  none;
       }
   </style>
 </head>
 <body style='margin: 0; padding: 0'>
+<svg
+  xmlns='http://www.w3.org/2000/svg'
+  style='display: none; width: 100%'
+  visibility='hidden'
+  id='clipboard'
+></svg>
 <svg
   xmlns='http://www.w3.org/2000/svg'
   style='width: 100%; height: calc(100% - 100px); margin: 0; cursor: initial !important;'
@@ -191,7 +207,6 @@
       transform='translate(20, 130)'
       class='arrow selectable template draggable parentG touch-action-none'
     >
-      <!--      <rect stroke-dasharray='3 3' class='border' x='-4' y='-7' width='70' height='15' />-->
       <path class='arrow-line' d='M 0 0 L 60 0' stroke-width='3'></path>
       <!-- Circle handle at the start of the line -->
       <circle
