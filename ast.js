@@ -126,6 +126,38 @@ function addVariableToFunctionReturnObject(func, propName, value) {
 
   return result.code;
 }
+function existsInReturnedObject(func, propName) {
+  if (typeof func !== 'string') {
+    console.error('\'func\' not a string', func, propName);
+    throw new Error('\'func\' not a string');
+  }
+
+  let exists = false;
+
+  Babel.transform(func, {
+    plugins: [
+      function({ types: t }) {
+        return {
+          visitor: {
+            ReturnStatement(path) {
+              const argument = path.node.argument;
+              if (argument && argument.type === 'ObjectExpression') {
+                const existingProp = argument.properties.find(
+                  prop => prop.key.name === propName
+                );
+                if (existingProp) {
+                  exists = true;
+                }
+              }
+            },
+          },
+        };
+      }],
+  });
+
+  return exists;
+}
+
 function removeVariableFromReturn(func, variableName) {
   if (typeof func !== 'string') {
     console.error('\'func\' not a string', func);
@@ -215,4 +247,37 @@ function addFuncParam(func, paramName) {
     }],
   });
   return result.code;
+}
+function existsInParams(func, paramName) {
+  if (typeof func !== 'string') {
+    console.error('\'func\' not a string', func, paramName);
+    throw new Error('\'func\' not a string');
+  }
+
+  let topLevelPath;
+  let exists = false;
+
+  Babel.transform(func, {
+    plugins: [{
+      visitor: {
+        FunctionDeclaration(path) {
+          if (topLevelPath) return;
+          topLevelPath = path;
+          exists = path.node.params.some(param => param.name === paramName);
+        },
+        FunctionExpression(path) {
+          if (topLevelPath) return;
+          topLevelPath = path;
+          exists = path.node.params.some(param => param.name === paramName);
+        },
+        ArrowFunctionExpression(path) {
+          if (topLevelPath) return;
+          topLevelPath = path;
+          exists = path.node.params.some(param => param.name === paramName);
+        },
+      },
+    }],
+  });
+
+  return exists;
 }

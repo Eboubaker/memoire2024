@@ -11,13 +11,16 @@
           display: flex;
           justify-content: end;
       }
+
       .arrow.selected {
-        stroke: #00a8ff;
+          stroke: #00a8ff;
       }
+
       .arrow.selected .arrow-handle {
-            fill: #00a8ff;
-            stroke: black;
+          fill: #00a8ff;
+          stroke: black;
       }
+
       #executeBtn {
           margin-right: 1rem;
           display: none;
@@ -26,6 +29,10 @@
       .variable-name .value {
           border: none;
           background-color: transparent;
+      }
+
+      #actionBar * {
+          user-select: none;
       }
 
       /*.variable-name .value {*/
@@ -135,8 +142,72 @@
           cursor: pointer;
           user-select: none;
       }
+
       .variable-name {
-          user-select:  none;
+          user-select: none;
+      }
+  </style>
+  <style>
+      .results {
+          border-collapse: collapse;
+      }
+
+      .results th, .results td {
+          border: 1px solid black;
+          padding: .2rem;
+      }
+
+      .results {
+          font-family: monospace;
+      }
+
+      .variables-table {
+          border-collapse: collapse;
+      }
+
+      .variables-table th, .variables-table td {
+          border: 1px solid black;
+      }
+
+      .variables-table th {
+          border-top: none !important;
+      }
+
+      .variables-table thead th:last-child {
+          border-right: none !important;
+      }
+
+      .variables-table thead tr th:first-child {
+          border-left: none !important;
+      }
+
+      .variables-table tbody tr :first-child {
+          border-left: none !important;
+      }
+
+      .variables-table tbody tr :last-child {
+          border-right: none !important;
+      }
+
+      .variables-table tbody tr:last-child * {
+          border-bottom: none !important;
+      }
+      .variables-cell .variable.output:last-child .value {
+          border-bottom: none !important;
+      }
+      .variables-cell .variable.output:first-child .value {
+          border-top: none !important;
+      }
+      .variables-cell .variable.input:first-child .value {
+          border-top: none !important;
+      }
+      .variables-cell .variable.input:last-child .value {
+          border-bottom: none !important;
+      }
+
+      .variables-cell {
+          padding: 0 !important;
+          vertical-align: top;
       }
   </style>
 </head>
@@ -154,6 +225,12 @@
   data-editor-id='1'
   class='editor touch-action-none'
   stroke='black'
+  data-version='v0.1.0'
+  data-next-node-number='1'
+  data-next-arrow-variable='a'
+  data-next-node-id='1'
+  data-next-anchor-id='1'
+  data-next-handle-id='1'
 >
   <g id='shape-menu' pointer-events='all' transform='translate(20, 0)'>
     <text dx='20' dy='20' style='user-select: none'>Objects</text>
@@ -192,13 +269,14 @@
         width='60'
         height='60'
       />
-      <text class='nodeName' x='50' y='70' dominant-baseline='middle' text-anchor='middle' style='font-size: 0.7rem;'>
+      <text class='nodeName' x='50' y='70' dominant-baseline='middle' text-anchor='middle'
+            style='font-size: 0.7rem;stroke-width: .5'>
         Node
       </text>
       <g class='code' data-code='' display='none' visibility='hidden'></g>
-<!--      <foreignObject style='display: none' x='50' y='50' width='1' height='1' visibility='hidden' class='code'>-->
-<!--        <textarea></textarea>-->
-<!--      </foreignObject>-->
+      <!--      <foreignObject style='display: none' x='50' y='50' width='1' height='1' visibility='hidden' class='code'>-->
+      <!--        <textarea></textarea>-->
+      <!--      </foreignObject>-->
       <!-- many anchor points will go here using javascript -->
       <!-- they will have class 'anchor-point' -->
     </g>
@@ -243,6 +321,9 @@
 <div id='actionBar'>
   <button id='executeBtn'>Execute</button>
   <button id='saveBtn'>save</button>
+  <button id='loadBtn'>load</button>
+  <button id='clearBtn'>clear</button>
+  <input id='loadBtnFile' type='file' style='display: none' />
 </div>
 <div id='editDialog'>
   <div class='overlay'></div>
@@ -263,23 +344,69 @@
     </div>
   </div>
 </div>
-<div id='resultsDialog'>
+
+<div id='resultsDialog-template' style='display: none'>
   <div class='overlay'></div>
   <div class='modal-container'>
     <div class='modal'>
       <h3 class='title'>Execution Result</h3>
       <table class='results'>
-
+        <thead>
+        <tr>
+          <th></th>
+          <th>&nbsp;Inputs</th>
+          <th>Outputs</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr class='node-row' v-for='(r, index) of report' :key='r.node.id'>
+          <th class='node-name'>{{ getNodeName(r.node) }}</th>
+          <td class='variables-cell'>
+            <table class='variables-table'>
+              <!--              <td class='variables-cell sim-cell'>-->
+              <!--                <table class='variables-table sim-table'>-->
+              <!--                  <thead>-->
+              <!--                  <tr>-->
+              <!--                    <th></th>-->
+              <!--                    <th>Sim1</th>-->
+              <!--                    <th>Sim2</th>-->
+              <!--                  </tr>-->
+              <!--                  </thead>-->
+              <!--                </table>-->
+              <!--              </td>-->
+              <tbody>
+              <tr class='variable input' v-for='name of Object.keys(r.inputs)' :key='name'>
+                <th class='name' :style="'width:'+maxInputVariableLength+'ch'">{{ name }}</th>
+                <td class='value' :style="'width:'+maxInputValueLength+'ch'">{{ r.inputs[name] }}</td>
+                <!--                <td class='value'>150</td>-->
+              </tr>
+              </tbody>
+            </table>
+          </td>
+          <td class='variables-cell'>
+            <table class='variables-table'>
+              <tbody>
+              <tr class='variable output' v-for='name of Object.keys(r.outputs)' :key='name'>
+                <th class='name' :style="'width:'+maxOutputVariableLength+'ch'">{{ name }}</th>
+                <td class='value' :style="'width:'+maxOutputValueLength+'ch'">{{ r.outputs[name] }}</td>
+                <!--                <td class='value'>200</td>-->
+              </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+        </tbody>
       </table>
     </div>
   </div>
 </div>
 <script src='interact.js'></script>
 <script src='min/vs/loader.js'></script>
-<script src='http_cdnjs.cloudflare.com_ajax_libs_require.js_2.3.6_require.js'></script>
 <script src='http_unpkg.com_@babel_standalone@7.24.5_babel.js'></script>
-<script src="https://cdn.jsdelivr.net/npm/sandboxjs@5.3.0/index.min.js"></script>
+<script src='https://cdn.jsdelivr.net/npm/sandboxjs@5.3.0/index.min.js'></script>
+<script src='vue.global.js'></script>
 <script src='ast.js'></script>
+<script src='lodash.min.js'></script>
 <script src='index.js'></script>
 </body>
 </html>

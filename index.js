@@ -1,12 +1,13 @@
 console.log('hello world');
 const svgNamespace = 'http://www.w3.org/2000/svg';
+const { createApp, ref } = Vue;
 
 // noinspection JSValidateTypes
 const editDialog = document.getElementById('editDialog');
 /**
  * @type {SVGSVGElement}
  */
-const mainEditor = document.querySelector('.editor');
+let mainEditor = document.querySelector('.editor');
 
 const gCircle = mainEditor.querySelector('.object-circle');
 const centerX = mainEditor.querySelector('.object-circle>circle').cx.baseVal
@@ -14,7 +15,7 @@ const centerX = mainEditor.querySelector('.object-circle>circle').cx.baseVal
 const centerY = mainEditor.querySelector('.object-circle>circle').cy.baseVal
   .value;
 const radius = gCircle.querySelector('.active-object').getAttribute('r');
-const anchorPoints = [];
+let anchorPoints = [];
 const numberOfPoints = 8;
 for (let i = 0; i < numberOfPoints; i++) {
   // Calculate angle in radians
@@ -80,14 +81,136 @@ function onNodeSelected(node) {
 
 function onNodeDeselected(node) {
   validateNode(node);
-  if ([...document.querySelectorAll('.selected')].length === 0) {
+  if ([...getOwnerWindow(node).querySelectorAll('.selected')].length === 0) {
     executeBtn.style.display = 'none';
   }
 }
 
-executeBtn.addEventListener('click', () => {
-  getNodes().filter(n => n.matches('.selected')).forEach(executeNode);
+function maxLen(arr, accumulator = ((max, curr) => max > curr.length ? curr.length : max)) {
+  return arr.reduce(accumulator, 0);
+}
+
+const clearBtn = document.querySelector('#clearBtn');
+clearBtn.addEventListener('click', () => {
+  try {
+    getNodes(mainEditor).forEach(n => removeObject(mainEditor, n));
+    getArrows(mainEditor).forEach(n => removeObject(mainEditor, n));
+  } catch(e) {
+    window.location.reload();
+    console.error(e);
+  } finally {
+    localStorage.clear();
+  }
 });
+let app;
+executeBtn.addEventListener('click', () => {
+  let report = [];
+  const env = {};
+  getNodes().filter(n => n.matches('.selected')).forEach(n => {
+    executeNode(n, env, report);
+  });
+  report = _.uniqWith(report, (a, b) => a.node === b.node);
+  const maxInputVariableLength = report.reduce((acc, n) => {
+    const l = Object.keys(n.inputs).reduce((acc, k) => acc > k.length ? acc : k.length, 0);
+    return acc > l ? acc : l;
+  }, 0);
+  const maxInputValueLength = report.reduce((acc, n) => {
+    const l = Object.values(n.inputs).reduce((acc, k) => acc > k.toString().length ? acc : k.toString().length, 0);
+    return acc > l ? acc : l;
+  }, 0);
+  console.log('maxInputVariableLength', maxInputVariableLength);
+  console.log('maxInputValueLength', maxInputValueLength);
+  const maxOutputVariableLength = report.reduce((acc, n) => {
+    const l = Object.keys(n.outputs).reduce((acc, k) => acc > k.length ? acc : k.length, 0);
+    return acc > l ? acc : l;
+  }, 0);
+  const maxOutputValueLength = report.reduce((acc, n) => {
+    const l = Object.values(n.outputs).reduce((acc, k) => acc > k.toString().length ? acc : k.toString().length, 0);
+    return acc > l ? acc : l;
+  }, 0);
+  console.log('maxOutputVariableLength', maxOutputVariableLength);
+  console.log('maxOutputValueLength', maxOutputValueLength);
+  if(app) {
+    app.unmount();
+    document.querySelector('#resultsDialog')?.remove();
+  }
+  const d = document.querySelector('#resultsDialog-template').cloneNode(true);
+  document.body.appendChild(d);
+  d.id = 'resultsDialog';
+  d.style.display = 'block'
+  app = createApp({
+    setup() {
+      return {
+        report,
+        maxInputVariableLength,
+        maxInputValueLength,
+        maxOutputVariableLength,
+        maxOutputValueLength,
+      };
+    },
+    methods: {
+      getNodeName,
+    },
+  });
+  app.mount(d);
+  console.log(report);
+});
+
+function executeNode(node, environment, report) {
+  environment = environment || {};
+  report = report || [];
+  validateNode(node);
+  const name = getNodeName(node);
+  let func;
+  try {
+    const nodeFunction = getNodeFunction(node);
+    const encodedSourceCode = btoa(nodeFunction);
+    const sourceCode = `(function runner(env, inputs) {
+        return (${nodeFunction})(...inputs)
+      })`;
+    func = eval?.(sourceCode
+      + `    //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
+  } catch (e) {
+    console.error(`syntax error in node "${name}"`, node);
+    throw e;
+  }
+  const deps = getNodeDependencies(node);
+  let inputs = {};
+  getNodeInputs(node).forEach(v => {
+    const depNode = deps.find(d => d.variables.includes(v)).node;
+    inputs[v] = executeNode(depNode, environment, report)[v];
+  });
+  let outputs;
+  try {
+    outputs = func(environment, Object.values(inputs));
+  } catch (e) {
+    console.error(`error while executing node "${name}"`, node);
+    throw e;
+  }
+  console.log(`"${name}" outputs: `, outputs);
+  report.push({
+    node: node,
+    inputs: _.cloneDeep(inputs),
+    outputs: _.cloneDeep(outputs),
+  });
+  return outputs;
+}
+
+async function executeNodeAsync(node) {
+
+}
+
+function getNodeDependencies(node) {
+  return getIncomingArrows(node).map(arr => {
+    return { variables: getArrowVariables(arr), node: getStartingNode(arr) };
+  });
+}
+
+function executeSimulation() {
+  getNodes()
+    .filter(isLeaf)
+    .forEach(executeNode);
+}
 
 function deleteNode(editorWindow, node) {
   validateNode(node);
@@ -98,6 +221,7 @@ function deleteNode(editorWindow, node) {
   for (const p of node.querySelectorAll(
     '.anchor-point[data-attached-handles]',
   )) {
+    anchorPoints = anchorPoints.filter(x => x !== p);
     const handles = p
       .getAttribute('data-attached-handles')
       .split(',')
@@ -113,7 +237,7 @@ function deleteNode(editorWindow, node) {
 
 
 // Function to call when the circle is moved
-function updateArrowPosition(handle, dx, dy) {
+function updateArrowPosition(editor, handle, dx, dy) {
   // Update the position of the circle handle based on the drag
   const arrowLine = handle.closest('g').querySelector('.arrow-line');
   const d = arrowLine.getAttribute('d');
@@ -176,14 +300,16 @@ function updateArrowPosition(handle, dx, dy) {
     'transform',
     'translate(' + (newDots[3].x) + ',' + (newDots[3].y) + ')',
   );
+  onEditorUpdated(editor);
 }
 
-let handlesCounter = 1;
-
 function addArrowHandleInteraction(editorWindow, head) {
-  console.log(anchorPoints);
-  const handleId = String(handlesCounter++);
-  head.setAttribute('data-handle-id', handleId);
+  let handleId = head.getAttribute('data-handle-id')
+  if(!handleId) {
+    handleId = +editorWindow.getAttribute('data-next-handle-id');
+    editorWindow.setAttribute('data-next-handle-id', '' + (handleId + 1));
+    head.setAttribute('data-handle-id', handleId);
+  }
   const interaction = interact(head).draggable({
     modifiers: [
       interact.modifiers.snap({
@@ -196,6 +322,7 @@ function addArrowHandleInteraction(editorWindow, head) {
     listeners: {
       end(event) {
         // console.log('dropped', event);
+        onEditorUpdated(editorWindow);
       },
       start(event) {
         // editorWindow.querySelectorAll('.test').forEach(e => e.remove());
@@ -215,7 +342,7 @@ function addArrowHandleInteraction(editorWindow, head) {
             .split(',')
             .filter((x) => x.length);
           if (handles.includes(handleId)) {
-            detachArrowHandle(head, p);
+            detachArrowHandle(editorWindow, head, p);
           }
         }
         event.interaction.interactable.options.drag.modifiers[0].options.targets =
@@ -233,7 +360,7 @@ function addArrowHandleInteraction(editorWindow, head) {
         const handle = event.currentTarget;
         const dx = event.dx;
         const dy = event.dy;
-        updateArrowPosition(handle, dx, dy);
+        updateArrowPosition(editorWindow, handle, dx, dy);
       },
     },
   });
@@ -243,7 +370,7 @@ function addArrowHandleInteraction(editorWindow, head) {
 }
 
 function getTransformation(target) {
-  if (target.tagName === 'svg' || !target) {
+  if (!target || target.tagName === 'svg') {
     return { x: 0, y: 0 };
   }
   // const ctm = target.getCTM();
@@ -256,6 +383,22 @@ function getTransformation(target) {
     relativeTrans.x += target.transform.animVal[0].matrix.e;
     relativeTrans.y += target.transform.animVal[0].matrix.f;
   }
+  return relativeTrans;
+}
+
+function getPos(target) {
+  if (!target || target.tagName === 'svg') {
+    return { x: 0, y: 0 };
+  }
+  // const ctm = target.getCTM();
+  const relativeTrans = { x: 0, y: 0 };//getTransformation(target.parentElement);
+  // const parentCTM = {
+  //   x: 0,
+  //   y: 0
+  // };
+  const ctm = target.getCTM();
+  relativeTrans.x += ctm.e;
+  relativeTrans.y += ctm.f;
   return relativeTrans;
 }
 
@@ -280,12 +423,15 @@ function GetWindowCoordinates(someSVGElement) {
   const svgRect = someSVGElement.getBoundingClientRect();
   return { x: svgRect.left, y: svgRect.top };
 }
+
 function isHandle(obj) {
-  return obj instanceof Node && obj.matches('.arrow-handle')
+  return obj instanceof Node && obj.matches('.arrow-handle');
 }
+
 function isAnchorPoint(obj) {
-  return obj instanceof Node && obj.matches('.anchor-point')
+  return obj instanceof Node && obj.matches('.anchor-point');
 }
+
 function checkHandle(handle) {
   if (!isHandle(handle)) {
     console.error('not a handle', handle);
@@ -341,12 +487,30 @@ function attachArrowHandle(editorWindow, handle, anchorPoint) {
   if (isArrowEnd(handle)) {
     const start = getStartingNode(arrow);
     const end = getEndingNode(arrow);
-    setNodeFunction(start, addVariableToFunctionReturnObject(getNodeFunction(start), input.value));
-    setNodeFunction(end, addFuncParam(getNodeFunction(end), input.value));
+    if (!existsInReturnedObject(getNodeFunction(start), input.value)) {
+      updateNodeFunction(start, addVariableToFunctionReturnObject, input.value);
+    }
+    let baseV = input.value;
+    let c = 0;
+    let v = baseV;
+    while (existsInParams(getNodeFunction(end), v)) {
+      c++;
+      v = baseV + '_' + c;
+    }
+    input.value = v;
+    input.size = Math.max(1, input.value.length);
+    updateNodeFunction(end, addFuncParam, v);
   }
+  onEditorUpdated(editorWindow);
 }
 
-function detachArrowHandle(handle, anchorPoint) {
+const onEditorUpdated = _.debounce(editor => {
+  if (editor instanceof Function)
+    editor = editor();
+  saveToCache(editor);
+}, 500);
+
+function detachArrowHandle(editorWindow, handle, anchorPoint) {
   if (!(handle instanceof SVGElement)) {
     // look by id
     handle = mainEditor.querySelector(`[data-handle-id="${handle}"]`);
@@ -362,22 +526,26 @@ function detachArrowHandle(handle, anchorPoint) {
     .filter((x) => x.length)
     .filter((x) => x !== handleId)
     .join(',');
-  if(handles.length)
+  if (handles.length)
     anchorPoint.setAttribute('data-attached-handles', handles);
   else
     anchorPoint.removeAttribute('data-attached-handles');
   const arrow = getArrow(handle);
   const end = getEndingNode(arrow);
-  console.log("detach");
+  console.log('detach');
   getArrowVariables(arrow).forEach(v => {
-    setNodeFunction(end, removeFuncParam(getNodeFunction(end), v));
-  })
+    updateNodeFunction(end, removeFuncParam, v);
+  });
+  onEditorUpdated(editorWindow);
 }
 
-let anchorCount = 0;
+function updateNodeFunction(node, mod, ...args) {
+  validateNode(node);
+  setNodeFunction(node, mod(getNodeFunction(node), ...args));
+}
 
 function onVariableNameChange() {
-  this.size = Math.max(1, this.value.length - 1);
+  this.size = Math.max(1, this.value.length);
   const arrow = this.closest('.arrow');
   validateArrow(arrow);
   const start = getStartingNode(arrow);
@@ -393,16 +561,21 @@ function onVariableNameChange() {
   console.log('addedVariables', addedVariables);
   console.log('deletedVariables', deletedVariables);
   deletedVariables.forEach(v => {
-    setNodeFunction(start, removeVariableFromReturn(getNodeFunction(start), v));
-    setNodeFunction(end, removeFuncParam(getNodeFunction(end), v));
+    updateNodeFunction(start, removeVariableFromReturn, v);
+    updateNodeFunction(end, removeFuncParam, v);
   });
   addedVariables.forEach(v => {
-    setNodeFunction(start, addVariableToFunctionReturnObject(getNodeFunction(start), v));
-    setNodeFunction(end, addFuncParam(getNodeFunction(end), v));
+    if (!existsInReturnedObject(getNodeFunction(start), v)) {
+      updateNodeFunction(start, addVariableToFunctionReturnObject, v);
+    }
+    if (existsInParams(getNodeFunction(end), v)) {
+      console.error('param already exists in FuncParams', end, v);
+      throw new Error('param already exists in FuncParams');
+    }
+    updateNodeFunction(end, addFuncParam, v);
   });
   console.log('changed');
   this.setAttribute('data-old-value', value);
-  return;
 }
 
 function isNode(elem) {
@@ -422,7 +595,6 @@ function trySelectObject(editorWindow, object) {
 }
 
 let currentEdit = null;
-let nextNodeNumber = 1;
 
 function validateNode(node) {
   if (!node.matches('.object-circle')) {
@@ -507,6 +679,11 @@ function getArrowVariables(arrow) {
     .split(',');
 }
 
+function setArrowVariables(arrow, variables) {
+  validateArrow(arrow);
+  arrow.querySelector('.variable-name .value').value = variables.join(',');
+}
+
 function getNodeInputs(node) {
   validateNode(node);
   return [...new Set(getIncomingArrows(node).flatMap(getArrowVariables))];
@@ -517,8 +694,12 @@ function getNodeOutputs(node) {
   return [...new Set(getOutgoingArrows(node).flatMap(getArrowVariables))];
 }
 
-function getNodes() {
-  return [...mainEditor.querySelectorAll('.object-circle:not(.template)')];
+function getNodes(editor = undefined) {
+  return [...(editor || mainEditor).querySelectorAll('.object-circle:not(.template)')];
+}
+
+function getArrows(editor = undefined) {
+  return [...(editor || mainEditor).querySelectorAll('.arrow:not(.template)')];
 }
 
 function isLeaf(node) {
@@ -534,55 +715,6 @@ function isRoot(node) {
 function getNodeName(node) {
   validateNode(node);
   return node.querySelector('.nodeName').innerHTML;
-}
-
-function executeNode(node, environment) {
-  environment = environment || {};
-  validateNode(node);
-  const name = getNodeName(node);
-  let func;
-  try {
-    const nodeFunction = getNodeFunction(node);
-    const encodedSourceCode = btoa(nodeFunction);
-    const sourceCode = `(function runner(env, inputs) {
-        return (${nodeFunction})(...inputs)
-      })`;
-    func = eval?.(sourceCode
-      + `    //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
-  } catch (e) {
-    console.error(`syntax error in node "${name}"`, node);
-    throw e;
-  }
-  const deps = getNodeDependencies(node);
-  const inputs = getNodeInputs(node).map(v => {
-    const depNode = deps.find(d => d.variables.includes(v)).node;
-    return executeNode(depNode, environment)[v];
-  });
-  let outputs;
-  try {
-    outputs = func(environment, inputs);
-  } catch (e) {
-    console.error(`error while executing node "${name}"`, node);
-    throw e;
-  }
-  console.log(`"${name}" outputs: `, outputs);
-  return outputs;
-}
-
-async function executeNodeAsync(node) {
-
-}
-
-function getNodeDependencies(node) {
-  return getIncomingArrows(node).map(arr => {
-    return { variables: getArrowVariables(arr), node: getStartingNode(arr) };
-  });
-}
-
-function executeSimulation() {
-  getNodes()
-    .filter(isLeaf)
-    .forEach(executeNode);
 }
 
 function proxify(object, change) {
@@ -620,34 +752,36 @@ function proxify(object, change) {
   return proxy;
 }
 
-function makeNewElementInteraction(editorWindow, target, template = undefined) {
-  let { x, y } = getTransformation(template);
-  console.log(x, y);
-  const myAnchorPoints = [];
-  if (target.matches('.object-circle')) {
-    target.querySelector('.nodeName').innerHTML =
-      'Node (' + nextNodeNumber++ + ')';
-    target.querySelector('.nodeName').onclick = function() {
-      openNodeEditor(target);
-    };
-    setNodeFunction(target, generateFunction('process', [], []));
+function isArrow(obj) {
+  return obj instanceof Node && obj.matches('.arrow');
+}
 
+function getNextArrowVariable(editor) {
+  let nextArrowVariable = editor.getAttribute('data-next-arrow-variable');
+  const ret = nextArrowVariable;
+  if (nextArrowVariable.endsWith('z'))
+    nextArrowVariable = 'a'.repeat(nextArrowVariable.length + 1);
+  else {
+    const last = nextArrowVariable.slice(-1);
+    nextArrowVariable = nextArrowVariable.slice(0, -1) + String.fromCharCode(last.charCodeAt(0) + 1);
+  }
+  editor.setAttribute('data-next-arrow-variable', nextArrowVariable);
+  return ret;
+}
+
+function addObjectInteractions(editorWindow, obj, template) {
+  let { x, y } = getPos(template);
+  const myAnchorPoints = [];
+  if (isNode(obj)) {
+    obj.querySelector('.nodeName').onclick = function() {
+      openNodeEditor(obj);
+    };
     myAnchorPoints.push(
-      ...[...target.querySelectorAll('.anchor-point>circle')],
-      // .map(e => {
-      //   const tr = getTransformation(e);
-      //   return {
-      //     anchorPoint: e,
-      //     // TODO: why add 20?
-      //     x: 20 + tr.x + Number(e.getAttribute('cx')),
-      //     y: tr.y + Number(e.getAttribute('cy')),
-      //   };
-      // }),
+      ...[...obj.querySelectorAll('.anchor-point>circle')],
     );
     anchorPoints.push(...myAnchorPoints);
-    for (const p of target.querySelectorAll('.anchor-point')) {
-      const anchorId = String(anchorCount++);
-      p.setAttribute('data-anchor-id', anchorId);
+    for (const p of obj.querySelectorAll('.anchor-point')) {
+      const anchorId = p.getAttribute('data-anchor-id');
       interact(p)
         .dropzone({
           ondragenter: function(event) {
@@ -655,17 +789,25 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
           ondragleave: function(event) {
           },
           ondrop: function(event) {
-            if(isHandle(event.relatedTarget) && isAnchorPoint(event.currentTarget))
+            if (isHandle(event.relatedTarget) && isAnchorPoint(event.currentTarget))
               attachArrowHandle(editorWindow, event.relatedTarget, event.currentTarget);
           },
         })
-        .draggable({})
+        .draggable({
+          listeners: {
+            end() {
+              console.log('my drag ended');
+              onEditorUpdated(editorWindow);
+            },
+          },
+        })
         .on('dragstart', (event) => {
           // create new arrow, put its arrow-handle-end in the
           // position of this anchor, and move the current
           // interaction to the arrow-handle-start so it moves with the mouse
           const template = editorWindow.querySelector('.arrow.template');
           const arrow = template.cloneNode(true);
+          setArrowVariables(arrow, [getNextArrowVariable(editorWindow)]);
           arrow.classList.remove('template', 'draggable');
           editorWindow.appendChild(arrow);
           makeNewElementInteraction(editorWindow, arrow, template);
@@ -673,7 +815,7 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
           const start = arrow.querySelector('.arrow-handle-start');
           start.setAttribute('data-attached-to', anchorId);
           const p = event.target;
-          updateArrowPosition(head, -65, 0);
+          updateArrowPosition(editorWindow, head, -65, 0);
           attachArrowHandle(editorWindow, start, p);
           const coords = GetSVGCoordinates(p);
           coords.x += 5;
@@ -688,18 +830,30 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
           arrow.transform.baseVal.appendItem(trans);
 
           event.interaction.start({ name: 'drag' }, head.interactions[0], head);
+          onEditorUpdated(editorWindow);
         });
     }
   }
-  if (target.matches('.arrow')) {
-    addArrowHandleInteraction(editorWindow, target.querySelector('.arrow-handle-start'));
-    addArrowHandleInteraction(editorWindow, target.querySelector('.arrow-handle-end'));
+  if (isArrow(obj)) {
+    addArrowHandleInteraction(editorWindow, obj.querySelector('.arrow-handle-start'));
+    addArrowHandleInteraction(editorWindow, obj.querySelector('.arrow-handle-end'));
   }
-  const interaction = interact(target).on('mousedown', (event) => {
+  const interaction = interact(obj).on('mousedown', (event) => {
     trySelectObject(editorWindow, event.currentTarget);
     event.stopPropagation();
   });
-  if (target.classList.contains('draggable')) {
+
+  interaction
+    .on('mouseover', (event) => {
+      event.currentTarget.classList.add('hovering');
+    })
+    .on('mouseout', (event) => {
+      event.currentTarget.classList.remove('hovering');
+    });
+  obj.interactions = obj.interactions || [];
+  obj.interactions.push(interaction);
+
+  if (obj.classList.contains('draggable')) {
     interaction
       .draggable({
         modifiers: [
@@ -715,6 +869,7 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
       })
       .on('dragend', (event) => {
         event.currentTarget.classList.remove('dragging');
+        onEditorUpdated(editorWindow);
       })
       .on(['dragmove'], function(event) {
         const target = event.currentTarget;
@@ -743,21 +898,35 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
             editorWindow.querySelector(`[data-handle-id='${id}']`),
           );
           for (const h of handles) {
-            updateArrowPosition(h, event.dx, event.dy);
+            updateArrowPosition(editorWindow, h, event.dx, event.dy);
           }
         }
       });
   }
-  interaction
-    .on('mouseover', (event) => {
-      event.currentTarget.classList.add('hovering');
-    })
-    .on('mouseout', (event) => {
-      event.currentTarget.classList.remove('hovering');
-    });
-  target.interactions = target.interactions || [];
-  target.interactions.push(interaction);
+  onEditorUpdated(editorWindow);
   return interaction;
+}
+
+function makeNewElementInteraction(editorWindow, target, template = undefined) {
+  if (target.matches('.object-circle')) {
+    let nextNodeNumber = +editorWindow.getAttribute('data-next-node-number');
+    let nextNodeId = +editorWindow.getAttribute('data-next-node-id');
+    target.querySelector('.nodeName').innerHTML =
+      'Node (' + nextNodeNumber + ')';
+    editorWindow.setAttribute('data-next-node-number', (1 + nextNodeNumber));
+    setNodeFunction(target, generateFunction('process', [], []));
+    let nextAnchorId = +editorWindow.getAttribute('data-next-anchor-id');
+    for (const p of target.querySelectorAll('.anchor-point')) {
+      p.setAttribute('data-anchor-id', '' + nextAnchorId);
+      nextAnchorId = nextAnchorId + 1;
+    }
+    editorWindow.setAttribute('data-next-anchor-id', nextAnchorId);
+    target.setAttribute('id', nextNodeId);
+    editorWindow.setAttribute('data-next-node-id', 1 + nextNodeId);
+  }
+  const ret = addObjectInteractions(editorWindow, target, template);
+  onEditorUpdated(editorWindow);
+  return ret;
 }
 
 /**
@@ -780,7 +949,8 @@ function setNodeFunction(node, func) {
     console.error('\'func\' value not a string: ', func);
     throw new Error('not a string: ' + func);
   }
-  node.querySelector('.code').setAttribute('data-code', func);
+  node.querySelector('.code').setAttribute('data-code', btoa(func));
+  onEditorUpdated(() => getOwnerWindow(node));
 }
 
 function validateFunc(func) {
@@ -795,7 +965,7 @@ function getNodeFunction(node) {
     console.error('no code', node);
     throw new Error('no code');
   }
-  return code;
+  return atob(code);
 }
 
 function saveNode() {
@@ -809,23 +979,24 @@ function saveNode() {
     return;
   }
   [...editDialog.querySelector('.errors').children].forEach(e => e.remove());
-  currentEdit.querySelector('.code').setAttribute('data-code', code);
+  setNodeFunction(currentEdit, code);
   codeEditor.setValue('');
+  onEditorUpdated(getOwnerWindow(currentEdit));
   currentEdit = null;
   editDialog.style.display = 'none';
   editDialog.style.pointerEvents = 'none';
 }
 
 function moveObjects(objects, dx, dy) {
-  if(!Array.isArray(objects))
+  if (!Array.isArray(objects))
     objects = [objects];
-  for(const object of objects) {
+  for (const object of objects) {
 
   }
 }
 
 function removeObject(editorWindow, obj) {
-  console.log("rem", obj);
+  console.log('rem', obj);
   if (!editorWindow.contains(obj)) return;
   if (obj.classList.contains('object-circle')) {
     deleteNode(editorWindow, obj);
@@ -840,8 +1011,8 @@ function removeObject(editorWindow, obj) {
       const anchor = editorWindow.querySelector(
         `.anchor-point[data-anchor-id='${anchorId}']`,
       );
-      if(anchor)
-        detachArrowHandle(obj, anchor);
+      if (anchor)
+        detachArrowHandle(editorWindow, obj, anchor);
     }
   } else {
     console.error('how to remove this?: ', obj);
@@ -864,7 +1035,7 @@ window.addEventListener('keydown', function(event) {
       document.querySelector('#clipboard').appendChild(selected.cloneNode(true));
       count++;
     }
-    console.log("copied", count, "elements");
+    console.log('copied', count, 'elements');
   }
 });
 
@@ -872,10 +1043,14 @@ function dropArrow(arrow) {
   mainEditor.querySelectorAll('.anchor-point');
 }
 
+function editorToString(editor) {
+  return beforeEditorSave(editor).outerHTML;
+}
+
 function saveEditor(editor) {
   console.log('Save');
-  editor = beforeEditorSave(editor);
-  const blob = new Blob([editor.outerHTML], { type: 'image/svg' });
+  const data = editorToString(editor);
+  const blob = new Blob([data], { type: 'image/svg' });
   const link = document.createElement('a');
   link.download = 'project.svg';
   link.href = window.URL.createObjectURL(blob);
@@ -887,6 +1062,39 @@ function saveEditor(editor) {
 }
 
 document.querySelector('#saveBtn').addEventListener('click', () => saveEditor(mainEditor));
+document.querySelector('#loadBtn').addEventListener('click', () => {
+  document.querySelector('#loadBtnFile').click();
+});
+document.querySelector('#loadBtnFile').addEventListener('change', (event, a) => {
+  event.target.files[0].text().then(txt => loadEditor(txt));
+});
+document.body.addEventListener('dragover', function dropHandler(ev) {
+  console.log('dragover');
+});
+document.body.addEventListener('drop', dropHandler);
+mainEditor.addEventListener('drop', dropHandler);
+
+function dropHandler(ev) {
+  console.log('File(s) dropped');
+  // Prevent default behavior (Prevent file from being opened)
+  let file;
+  if (ev.dataTransfer?.items) {
+    // Use DataTransferItemList interface to access the file(s)
+    [...ev.dataTransfer.items].forEach((item, i) => {
+      // If dropped items aren't files, reject them
+      if (item.kind === 'file') {
+        file = item?.getAsFile();
+      }
+    });
+  } else {
+    if (ev.dataTransfer?.files)
+      file = ev.dataTransfer?.files[0];
+  }
+  if (file) {
+    file.text().then(txt => loadEditor(txt));
+    ev.preventDefault();
+  }
+}
 
 function beforeEditorSave(editor) {
   editor = editor.cloneNode(true);
@@ -901,7 +1109,6 @@ function beforeEditorSave(editor) {
 }
 
 function afterEditorLoad(editor) {
-  editor.appendChild(mainEditor.querySelector('#shape-menu').cloneNode(true));
   setupEditor(editor);
   return editor;
 }
@@ -917,6 +1124,11 @@ function setupEditor(editor) {
             endOnly: true,
           }),
         ],
+        listeners: {
+          end() {
+            console.log('dragend1');
+          },
+        },
       })
       .on(['move', 'drag', 'dragstart'], function(event) {
         let interaction = event.interaction;
@@ -945,7 +1157,9 @@ function setupEditor(editor) {
       })
       .on('mouseout', (event) => {
         event.currentTarget.classList.remove('hovering');
-      });
+      }).on('dragend', (event) => {
+      console.log('end drag2');
+    });
   }
   interact(editor.querySelector('.trash-zone')).dropzone({
     // Require a 75% element overlap for a drop to be possible
@@ -973,7 +1187,8 @@ function setupEditor(editor) {
       if (!draggableElement.classList.contains('parentG'))
         draggableElement = draggableElement.closest('.parentG');
       event.currentTarget.classList.remove('can-accept');
-      removeObject(draggableElement);
+      removeObject(editor, draggableElement);
+      onEditorUpdated(editor);
       // for (const p of draggableElement.querySelectorAll('.anchor-point[data-attached-handles]')) {
       //   const handles = p.getAttribute('data-attached-handles')
       //     .split(',')
@@ -1063,16 +1278,58 @@ function setupEditor(editor) {
         },
       },
     }).styleCursor(false);
+  getNodes(editor).forEach(n => addObjectInteractions(editor, n, n));
+  getArrows(editor).forEach(a => {
+    addObjectInteractions(editor, a, a);
+    const fa = document.createElementNS(svgNamespace, 'foreignObject');
+    fa.setAttribute('width', '1');
+    fa.setAttribute('height', '1');
+    fa.style.overflow = 'visible';
+    fa.classList.add('variable-editor');
+    fa.setAttribute('width', '1');
+    fa.setAttribute('width', '1');
+    const d = document.createElement('div');
+    d.classList.add('value-container');
+    const inp = document.createElement('input');
+    const value = a.querySelector('text').textContent;
+    inp.value = value;
+    inp.size = Math.max(1, inp.value.length);
+    inp.setAttribute('spellcheck', 'false');
+    inp.setAttribute('data-old-value', value);
+    inp.setAttribute('value', value);
+    inp.classList.add('value');
+    inp.style.fontFamily = 'monospace';
+    inp.onchange = onVariableNameChange;
+    d.appendChild(inp);
+    fa.appendChild(d);
+    a.querySelector('.variable-name').appendChild(fa);
+    a.querySelector('text').setAttribute('visibility', 'hidden');
+  });
+  onEditorUpdated(editor);
 }
 
-function loadEditor(file) {
+function loadEditor(svgText) {
   let editor;
   const div = document.createElement('div');
-  div.innerHTML = file.readAsText();
+  div.innerHTML = svgText;
+  editor = div.firstChild;
+  editor.appendChild(mainEditor.querySelector('#shape-menu').cloneNode(true));
+  mainEditor.parentNode.insertBefore(editor, mainEditor);
+  mainEditor.remove();
   editor = afterEditorLoad(editor);
-  document.querySelector('.editor').remove();
-  document.prepend(editor);
+  mainEditor = editor;
+  onEditorUpdated(mainEditor);
   return editor;
 }
 
-setupEditor(mainEditor);
+function saveToCache(editor) {
+  const data = editorToString(editor);
+  localStorage.setItem('cached-editor', data);
+}
+
+const cache = localStorage.getItem('cached-editor');
+if (cache) {
+  loadEditor(cache);
+} else {
+  setupEditor(mainEditor);
+}
