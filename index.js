@@ -1,4 +1,3 @@
-console.log('hello world');
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const { createApp, ref } = Vue;
 
@@ -41,7 +40,8 @@ randomIdDiv.id = randomId;
 randomIdDiv.style.height = '300px';
 randomIdDiv.style.border = '1px solid black';
 let codeEditor;
-require(['vs/editor/editor.main'], () => {
+require(['vs/editor/editor.main'], (ed) => {
+  console.log('loaded ', ed);
   codeEditor = monaco.editor.create(document.getElementById(randomIdDiv.id), {
     value: ``,
     language: 'javascript',
@@ -95,7 +95,7 @@ clearBtn.addEventListener('click', () => {
   try {
     getNodes(mainEditor).forEach(n => removeObject(mainEditor, n));
     getArrows(mainEditor).forEach(n => removeObject(mainEditor, n));
-  } catch(e) {
+  } catch (e) {
     window.location.reload();
     console.error(e);
   } finally {
@@ -103,41 +103,42 @@ clearBtn.addEventListener('click', () => {
   }
 });
 let app;
-executeBtn.addEventListener('click', () => {
+executeBtn.addEventListener('click', async () => {
+  let method = document.querySelector('#execution-method').value;
   let report = [];
   const env = {};
-  getNodes().filter(n => n.matches('.selected')).forEach(n => {
-    executeNode(n, env, report);
-  });
+  await Promise.all(getNodes().filter(n => n.matches('.selected')).map(async (n) => {
+    await executeNode(n, method, env, report);
+  }));
   report = _.uniqWith(report, (a, b) => a.node === b.node);
   const maxInputVariableLength = report.reduce((acc, n) => {
-    const l = Object.keys(n.inputs).reduce((acc, k) => acc > k.length ? acc : k.length, 0);
+    const l = Object.keys(n.inputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
     return acc > l ? acc : l;
   }, 0);
   const maxInputValueLength = report.reduce((acc, n) => {
-    const l = Object.values(n.inputs).reduce((acc, k) => acc > k.toString().length ? acc : k.toString().length, 0);
+    const l = Object.values(n.inputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
     return acc > l ? acc : l;
   }, 0);
   console.log('maxInputVariableLength', maxInputVariableLength);
   console.log('maxInputValueLength', maxInputValueLength);
   const maxOutputVariableLength = report.reduce((acc, n) => {
-    const l = Object.keys(n.outputs).reduce((acc, k) => acc > k.length ? acc : k.length, 0);
+    const l = Object.keys(n.outputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
     return acc > l ? acc : l;
   }, 0);
   const maxOutputValueLength = report.reduce((acc, n) => {
-    const l = Object.values(n.outputs).reduce((acc, k) => acc > k.toString().length ? acc : k.toString().length, 0);
+    const l = Object.values(n.outputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
     return acc > l ? acc : l;
   }, 0);
   console.log('maxOutputVariableLength', maxOutputVariableLength);
   console.log('maxOutputValueLength', maxOutputValueLength);
-  if(app) {
+  if (app) {
     app.unmount();
     document.querySelector('#resultsDialog')?.remove();
   }
   const d = document.querySelector('#resultsDialog-template').cloneNode(true);
   document.body.appendChild(d);
   d.id = 'resultsDialog';
-  d.style.display = 'block'
+  d.style.display = 'block';
   app = createApp({
     setup() {
       return {
@@ -150,39 +151,62 @@ executeBtn.addEventListener('click', () => {
     },
     methods: {
       getNodeName,
+      stringifyValue,
     },
   });
   app.mount(d);
   console.log(report);
 });
 
-function executeNode(node, environment, report) {
+function stringifyValue(v) {
+  if (typeof v === 'undefined')
+    return 'undefined';
+  if (v === null)
+    return 'null';
+  return v.toString();
+}
+
+async function executeNode(node, method = 'backwards', environment, report) {
+  console.log('exec', node);
   environment = environment || {};
   report = report || [];
   validateNode(node);
   const name = getNodeName(node);
   let func;
+  let nodeFunction
   try {
-    const nodeFunction = getNodeFunction(node);
+    nodeFunction = getNodeFunctionRaw(node);
     const encodedSourceCode = btoa(nodeFunction);
     const sourceCode = `(function runner(env, inputs) {
         return (${nodeFunction})(...inputs)
       })`;
     func = eval?.(sourceCode
-      + `    //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
+      + `
+        //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}
+        //# sourceURL=process.js`);
   } catch (e) {
     console.error(`syntax error in node "${name}"`, node);
     throw e;
   }
   const deps = getNodeDependencies(node);
   let inputs = {};
-  getNodeInputs(node).forEach(v => {
+  await Promise.all(getNodeInputs(node).map(async (v) => {
     const depNode = deps.find(d => d.variables.includes(v)).node;
-    inputs[v] = executeNode(depNode, environment, report)[v];
-  });
+    inputs[v] = (await executeNode(depNode, method, environment, report))[v];
+  }));
   let outputs;
+  const orderedInputs = [];
+  getFunctionParams(getNodeFunctionRaw(node)).forEach(param => {
+    if (param in inputs) {
+      orderedInputs.push(inputs[param]);
+    }
+  });
   try {
-    outputs = func(environment, Object.values(inputs));
+    if (isAsyncFunction(getNodeFunction(node))) {
+      outputs = await func(environment, orderedInputs);
+    } else {
+      outputs = func(environment, orderedInputs);
+    }
   } catch (e) {
     console.error(`error while executing node "${name}"`, node);
     throw e;
@@ -195,11 +219,9 @@ function executeNode(node, environment, report) {
   });
   return outputs;
 }
-
-async function executeNodeAsync(node) {
-
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
-
 function getNodeDependencies(node) {
   return getIncomingArrows(node).map(arr => {
     return { variables: getArrowVariables(arr), node: getStartingNode(arr) };
@@ -237,7 +259,7 @@ function deleteNode(editorWindow, node) {
 
 
 // Function to call when the circle is moved
-function updateArrowPosition(editor, handle, dx, dy) {
+function updateHandlePosition(editor, handle, dx, dy) {
   // Update the position of the circle handle based on the drag
   const arrowLine = handle.closest('g').querySelector('.arrow-line');
   const d = arrowLine.getAttribute('d');
@@ -304,8 +326,8 @@ function updateArrowPosition(editor, handle, dx, dy) {
 }
 
 function addArrowHandleInteraction(editorWindow, head) {
-  let handleId = head.getAttribute('data-handle-id')
-  if(!handleId) {
+  let handleId = head.getAttribute('data-handle-id');
+  if (!handleId) {
     handleId = +editorWindow.getAttribute('data-next-handle-id');
     editorWindow.setAttribute('data-next-handle-id', '' + (handleId + 1));
     head.setAttribute('data-handle-id', handleId);
@@ -360,7 +382,7 @@ function addArrowHandleInteraction(editorWindow, head) {
         const handle = event.currentTarget;
         const dx = event.dx;
         const dy = event.dy;
-        updateArrowPosition(editorWindow, handle, dx, dy);
+        updateHandlePosition(editorWindow, handle, dx, dy);
       },
     },
   });
@@ -487,13 +509,13 @@ function attachArrowHandle(editorWindow, handle, anchorPoint) {
   if (isArrowEnd(handle)) {
     const start = getStartingNode(arrow);
     const end = getEndingNode(arrow);
-    if (!existsInReturnedObject(getNodeFunction(start), input.value)) {
+    if (!existsInReturnedObject(getNodeFunctionRaw(start), input.value)) {
       updateNodeFunction(start, addVariableToFunctionReturnObject, input.value);
     }
     let baseV = input.value;
     let c = 0;
     let v = baseV;
-    while (existsInParams(getNodeFunction(end), v)) {
+    while (existsInParams(getNodeFunctionRaw(end), v)) {
       c++;
       v = baseV + '_' + c;
     }
@@ -506,7 +528,7 @@ function attachArrowHandle(editorWindow, handle, anchorPoint) {
 
 const onEditorUpdated = _.debounce(editor => {
   if (editor instanceof Function)
-    editor = editor();
+    editor = editor(); // lazy supplier for editor
   saveToCache(editor);
 }, 500);
 
@@ -541,10 +563,14 @@ function detachArrowHandle(editorWindow, handle, anchorPoint) {
 
 function updateNodeFunction(node, mod, ...args) {
   validateNode(node);
-  setNodeFunction(node, mod(getNodeFunction(node), ...args));
+  setNodeFunction(node, mod(getNodeFunctionRaw(node), ...args));
 }
 
 function onVariableNameChange() {
+  if (!this.matches('input')) {
+    console.error('onVariableNameChange: this is not input:', this);
+    throw new Error('onVariableNameChange: this is not input');
+  }
   this.size = Math.max(1, this.value.length);
   const arrow = this.closest('.arrow');
   validateArrow(arrow);
@@ -565,10 +591,10 @@ function onVariableNameChange() {
     updateNodeFunction(end, removeFuncParam, v);
   });
   addedVariables.forEach(v => {
-    if (!existsInReturnedObject(getNodeFunction(start), v)) {
+    if (!existsInReturnedObject(getNodeFunctionRaw(start), v)) {
       updateNodeFunction(start, addVariableToFunctionReturnObject, v);
     }
-    if (existsInParams(getNodeFunction(end), v)) {
+    if (existsInParams(getNodeFunctionRaw(end), v)) {
       console.error('param already exists in FuncParams', end, v);
       throw new Error('param already exists in FuncParams');
     }
@@ -581,12 +607,28 @@ function onVariableNameChange() {
 function isNode(elem) {
   return elem.matches('.object-circle');
 }
-
+function getNodeFunction(node) {
+  validateNode(node);
+  try {
+    const func = getNodeFunctionRaw(node);
+    const encodedSourceCode = btoa(func);
+    return eval?.('(' + func + ')'
+      + `\n\n//# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
+  } catch (e) {
+    console.error("Syntax error in node function:", node);
+    throw e;
+  }
+}
 function trySelectObject(editorWindow, object) {
   if (object.classList.contains('selectable')) {
     editorWindow
       .querySelectorAll('.selected')
-      .forEach((e) => e.classList.remove('selected'));
+      .forEach((e) => {
+        e.classList.remove('selected');
+        if (isNode(e)) {
+          onNodeDeselected(e);
+        }
+      });
     object.classList.add('selected');
     if (isNode(object)) {
       onNodeSelected(object);
@@ -616,7 +658,7 @@ function openNodeEditor(node) {
   editDialog.style.display = 'block';
   editDialog.style.pointerEvents = 'all';
   editDialog.querySelector('#nodeName').value = node.querySelector('.nodeName').innerHTML;
-  codeEditor.setValue(getNodeFunction(node));
+  codeEditor.setValue(getNodeFunctionRaw(node));
 }
 
 function getOutgoingArrows(node) {
@@ -659,6 +701,16 @@ function getStartingNode(arrow) {
   return mainEditor
     .querySelector(`.anchor-point[data-anchor-id="${id}"]`)
     .closest('.object-circle');
+}
+
+function getStartingHandle(arrow) {
+  validateArrow(arrow);
+  return arrow.querySelector('.arrow-handle-start');
+}
+
+function getEndingHandle(arrow) {
+  validateArrow(arrow);
+  return arrow.querySelector('.arrow-handle-end');
 }
 
 function getEndingNode(arrow) {
@@ -770,7 +822,6 @@ function getNextArrowVariable(editor) {
 }
 
 function addObjectInteractions(editorWindow, obj, template) {
-  let { x, y } = getPos(template);
   const myAnchorPoints = [];
   if (isNode(obj)) {
     obj.querySelector('.nodeName').onclick = function() {
@@ -815,7 +866,7 @@ function addObjectInteractions(editorWindow, obj, template) {
           const start = arrow.querySelector('.arrow-handle-start');
           start.setAttribute('data-attached-to', anchorId);
           const p = event.target;
-          updateArrowPosition(editorWindow, head, -65, 0);
+          updateHandlePosition(editorWindow, head, -65, 0);
           attachArrowHandle(editorWindow, start, p);
           const coords = GetSVGCoordinates(p);
           coords.x += 5;
@@ -838,9 +889,13 @@ function addObjectInteractions(editorWindow, obj, template) {
     addArrowHandleInteraction(editorWindow, obj.querySelector('.arrow-handle-start'));
     addArrowHandleInteraction(editorWindow, obj.querySelector('.arrow-handle-end'));
   }
-  const interaction = interact(obj).on('mousedown', (event) => {
-    trySelectObject(editorWindow, event.currentTarget);
-    event.stopPropagation();
+  let lastIsDrag = false;
+  const interaction = interact(obj).on('mouseup', (event) => {
+    if (!lastIsDrag) {
+      trySelectObject(editorWindow, event.currentTarget);
+      event.stopPropagation();
+    }
+    lastIsDrag = false;
   });
 
   interaction
@@ -870,41 +925,58 @@ function addObjectInteractions(editorWindow, obj, template) {
       .on('dragend', (event) => {
         event.currentTarget.classList.remove('dragging');
         onEditorUpdated(editorWindow);
+        lastIsDrag = true;
       })
       .on(['dragmove'], function(event) {
         const target = event.currentTarget;
-        x += event.dx;
-        y += event.dy;
         if (target.classList.contains('selected')) {
-          for (const e of editorWindow.querySelectorAll(
-            '.selectable.selected',
-          )) {
-            if (e === target) continue;
-            moveObjects(e, event.dx, event.dy);
-          }
-        } else {
-          moveObjects(target, event.dx, event.dy);
-        }
-        myAnchorPoints.forEach((anchorPoint) => {
-          anchorPoint.x += event.dx;
-          anchorPoint.y += event.dy;
-        });
-        target.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
-        for (const p of target.querySelectorAll('.anchor-point')) {
-          let handles = p.getAttribute('data-attached-handles');
-          if (!handles) continue;
-          handles = handles.split(',').filter((x) => x.length);
-          handles = handles.map((id) =>
-            editorWindow.querySelector(`[data-handle-id='${id}']`),
+          moveObjects(editorWindow, [...editorWindow.querySelectorAll('.selectable.selected')],
+            event.dx,
+            event.dy,
           );
-          for (const h of handles) {
-            updateArrowPosition(editorWindow, h, event.dx, event.dy);
-          }
+        } else {
+          moveObjects(editorWindow, target, event.dx, event.dy);
         }
       });
   }
   onEditorUpdated(editorWindow);
   return interaction;
+}
+
+function moveObjects(editor, objects, dx, dy) {
+  if (!Array.isArray(objects))
+    objects = [objects];
+  if (objects.length === 0)
+    return;
+  for (const object of objects) {
+    if (isArrow(object)) {
+      updateHandlePosition(editor, getStartingHandle(object), dx, dy);
+      updateHandlePosition(editor, getEndingHandle(object), dx, dy);
+    } else if (isNode(object)) {
+      let { e: x, f: y } = object.getCTM();
+      x += dx;
+      y += dy;
+      object.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
+      for (const p of object.querySelectorAll('.anchor-point')) {
+        p.x += dx;
+        p.y += dy;
+        let handles = p.getAttribute('data-attached-handles');
+        if (!handles) continue;
+        handles = handles.split(',').filter((x) => x.length);
+        handles = handles.map((id) =>
+          editor.querySelector(`[data-handle-id='${id}']`),
+        );
+        for (const h of handles) {
+          const arrow = getArrow(h);
+          if (arrow in objects)
+            continue;
+          updateHandlePosition(editor, h, dx, dy);
+        }
+      }
+    } else {
+      console.error('I don\'t know how to move this object:', object);
+    }
+  }
 }
 
 function makeNewElementInteraction(editorWindow, target, template = undefined) {
@@ -914,7 +986,7 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
     target.querySelector('.nodeName').innerHTML =
       'Node (' + nextNodeNumber + ')';
     editorWindow.setAttribute('data-next-node-number', (1 + nextNodeNumber));
-    setNodeFunction(target, generateFunction('process', [], []));
+    setNodeFunction(target, generateFunction('process', [], [], true));
     let nextAnchorId = +editorWindow.getAttribute('data-next-anchor-id');
     for (const p of target.querySelectorAll('.anchor-point')) {
       p.setAttribute('data-anchor-id', '' + nextAnchorId);
@@ -958,7 +1030,7 @@ function validateFunc(func) {
   return true;
 }
 
-function getNodeFunction(node) {
+function getNodeFunctionRaw(node) {
   validateNode(node);
   const code = node.querySelector('.code').getAttribute('data-code');
   if (!code) {
@@ -985,14 +1057,6 @@ function saveNode() {
   currentEdit = null;
   editDialog.style.display = 'none';
   editDialog.style.pointerEvents = 'none';
-}
-
-function moveObjects(objects, dx, dy) {
-  if (!Array.isArray(objects))
-    objects = [objects];
-  for (const object of objects) {
-
-  }
 }
 
 function removeObject(editorWindow, obj) {
@@ -1044,7 +1108,7 @@ function dropArrow(arrow) {
 }
 
 function editorToString(editor) {
-  return beforeEditorSave(editor).outerHTML;
+  return cloneEditorForSave(editor).outerHTML;
 }
 
 function saveEditor(editor) {
@@ -1096,9 +1160,19 @@ function dropHandler(ev) {
   }
 }
 
-function beforeEditorSave(editor) {
+function cloneEditorForSave(editor) {
   editor = editor.cloneNode(true);
   editor.querySelector('#shape-menu').remove();
+  editor
+    .querySelectorAll('.selected')
+    .forEach((e) => {
+      e.classList.remove('selected');
+      if (isNode(e)) {
+        onNodeDeselected();
+      }
+    });
+  executeBtn.style.display = 'none';
+
   for (const v of [...editor.querySelectorAll('.arrow .variable-name')]) {
     const variable = v.querySelector('.value').value;
     v.querySelector('foreignObject').remove();
@@ -1213,18 +1287,28 @@ function setupEditor(editor) {
       // draggableElement.remove();
     },
   });
+  let lastIsDrag = false;
   interact(editor)
-    .on(['mousedown'], function(event) {
-      console.log('editor onMouseDown', event);
-      editor
-        .querySelectorAll('.selected')
-        .forEach((e) => e.classList.remove('selected'));
-      executeBtn.style.display = 'none';
+    .on(['mouseup'], function(event) {
+      console.log('editor onMouseUp', event);
+      if (!lastIsDrag) {
+        editor
+          .querySelectorAll('.selected')
+          .forEach((e) => {
+            e.classList.remove('selected');
+            if (isNode(e)) {
+              onNodeDeselected(e);
+            }
+          });
+        executeBtn.style.display = 'none';
+      }
+      lastIsDrag = false;
     })
     .draggable({
       listeners: {
         end(event) {
           editor.querySelector('.selection-rect').remove();
+          lastIsDrag = true;
         },
         start(event) {
           console.log('start', event);
@@ -1263,7 +1347,7 @@ function setupEditor(editor) {
                   onNodeSelected(sel);
                 }
               }
-            } else {
+            } else if (sel.matches('.selected')) {
               sel.classList.remove('selected');
               if (isNode(sel)) {
                 onNodeDeselected(sel);

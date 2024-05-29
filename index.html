@@ -319,6 +319,10 @@
   </g>
 </svg>
 <div id='actionBar'>
+  <select id='execution-method'>
+    <option value='backward'>Backward</option>
+    <option value='forward'>Forward</option>
+  </select>
   <button id='executeBtn'>Execute</button>
   <button id='saveBtn'>save</button>
   <button id='loadBtn'>load</button>
@@ -377,7 +381,7 @@
               <tbody>
               <tr class='variable input' v-for='name of Object.keys(r.inputs)' :key='name'>
                 <th class='name' :style="'width:'+maxInputVariableLength+'ch'">{{ name }}</th>
-                <td class='value' :style="'width:'+maxInputValueLength+'ch'">{{ r.inputs[name] }}</td>
+                <td class='value' :style="'width:'+maxInputValueLength+'ch'">{{ stringifyValue(r.inputs[name]) }}</td>
                 <!--                <td class='value'>150</td>-->
               </tr>
               </tbody>
@@ -388,7 +392,7 @@
               <tbody>
               <tr class='variable output' v-for='name of Object.keys(r.outputs)' :key='name'>
                 <th class='name' :style="'width:'+maxOutputVariableLength+'ch'">{{ name }}</th>
-                <td class='value' :style="'width:'+maxOutputValueLength+'ch'">{{ r.outputs[name] }}</td>
+                <td class='value' :style="'width:'+maxOutputValueLength+'ch'">{{ stringifyValue(r.outputs[name]) }}</td>
                 <!--                <td class='value'>200</td>-->
               </tr>
               </tbody>
@@ -402,11 +406,17 @@
 </div>
 <script src='interact.js'></script>
 <script src='min/vs/loader.js'></script>
-<script src='http_unpkg.com_@babel_standalone@7.24.5_babel.js'></script>
-<script src='https://cdn.jsdelivr.net/npm/sandboxjs@5.3.0/index.min.js'></script>
 <script src='vue.global.js'></script>
 <script src='ast.js'></script>
+<script>
+  let oldD = window['define'];
+  window['define'] = undefined
+</script>
 <script src='lodash.min.js'></script>
+<!--<script src='https://cdn.jsdelivr.net/npm/sandboxjs@5.3.0/index.min.js'></script>-->
+<script>
+  window['define'] = oldD
+</script>
 <script src='index.js'></script>
 </body>
 </html>

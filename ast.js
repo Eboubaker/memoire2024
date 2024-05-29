@@ -14,7 +14,49 @@ require(['http_unpkg.com_@babel_standalone@7.24.5_babel.js'], _Babel => {
   });
 });
 
-function generateFunction(name, params, outputs) {
+function isAsyncFunction(func) {
+  if (typeof func !== 'function') {
+    throw new TypeError('Expected a function');
+  }
+  return func.constructor.name === 'AsyncFunction';
+}
+
+function getFunctionParams(func) {
+  if (typeof func !== 'string') {
+    console.error('\'func\' not a string', func);
+    throw new Error('\'func\' not a string');
+  }
+  let topLevelPath;
+  let params = [];
+  const result = Babel.transform(func, {
+    plugins: [{
+      visitor: {
+        FunctionDeclaration(path) {
+          if (topLevelPath)
+            return;
+          topLevelPath = path;
+          params = path.node.params.map(p => p.name);
+        },
+        FunctionExpression(path) {
+          if (topLevelPath)
+            return;
+          topLevelPath = path;
+          params = path.node.params.map(p => p.name);
+        },
+        ArrowFunctionExpression(path) {
+          if (topLevelPath)
+            return;
+          topLevelPath = path;
+          params = path.node.params.map(p => p.name);
+        },
+      },
+    }],
+  });
+
+  return params;
+}
+
+function generateFunction(name, params, outputs, isAsync = false) {
   if (!Array.isArray(params) || !Array.isArray(outputs)) {
     console.error('`params` and `outputs` must be arrays', params, outputs);
     throw new Error('`params` and `outputs` must be arrays');
@@ -22,7 +64,7 @@ function generateFunction(name, params, outputs) {
 
   const paramNodes = params.map(param => Babel.types.identifier(param));
   const outputProperties = outputs.map(output =>
-    Babel.types.objectProperty(Babel.types.identifier(output), Babel.types.nullLiteral())
+    Babel.types.objectProperty(Babel.types.identifier(output), Babel.types.nullLiteral()),
   );
 
   const functionNode = Babel.types.functionDeclaration(
@@ -30,10 +72,14 @@ function generateFunction(name, params, outputs) {
     paramNodes,
     Babel.types.blockStatement([
       Babel.types.returnStatement(
-        Babel.types.objectExpression(outputProperties)
-      )
-    ])
+        Babel.types.objectExpression(outputProperties),
+      ),
+    ]),
   );
+
+  if (isAsync) {
+    functionNode.async = true;
+  }
 
   const ast = Babel.types.program([functionNode]);
   const { code } = Babel.transformFromAstSync(ast, '', { presets: [] });
@@ -126,6 +172,7 @@ function addVariableToFunctionReturnObject(func, propName, value) {
 
   return result.code;
 }
+
 function existsInReturnedObject(func, propName) {
   if (typeof func !== 'string') {
     console.error('\'func\' not a string', func, propName);
@@ -143,7 +190,7 @@ function existsInReturnedObject(func, propName) {
               const argument = path.node.argument;
               if (argument && argument.type === 'ObjectExpression') {
                 const existingProp = argument.properties.find(
-                  prop => prop.key.name === propName
+                  prop => prop.key.name === propName,
                 );
                 if (existingProp) {
                   exists = true;
@@ -216,6 +263,7 @@ function removeFuncParam(func, paramName) {
   });
   return result.code;
 }
+
 function addFuncParam(func, paramName) {
   if (typeof func !== 'string') {
     console.error('\'func\' not a string', func, paramName);
@@ -248,6 +296,7 @@ function addFuncParam(func, paramName) {
   });
   return result.code;
 }
+
 function existsInParams(func, paramName) {
   if (typeof func !== 'string') {
     console.error('\'func\' not a string', func, paramName);
