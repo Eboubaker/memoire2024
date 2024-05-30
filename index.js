@@ -73,16 +73,19 @@ let startX = 0,
 let startY = 0,
   endY = 0;
 const executeBtn = document.querySelector('#executeBtn');
+const executionMethodSel = document.querySelector('#execution-method');
 
 function onNodeSelected(node) {
   validateNode(node);
   executeBtn.style.display = 'block';
+  executionMethodSel.style.display = 'block';
 }
 
 function onNodeDeselected(node) {
   validateNode(node);
   if ([...getOwnerWindow(node).querySelectorAll('.selected')].length === 0) {
     executeBtn.style.display = 'none';
+    executionMethodSel.style.display = 'none';
   }
 }
 
@@ -108,7 +111,12 @@ executeBtn.addEventListener('click', async () => {
   let report = [];
   const env = {};
   await Promise.all(getNodes().filter(n => n.matches('.selected')).map(async (n) => {
-    await executeNode(n, method, env, report);
+    if(method === 'backward')
+      await executeNodeBackward(n, env, report);
+    else if(method === 'forward')
+      await executeNodeForward(n, [], env, report);
+    else
+      throw new Error("unknown execution method:" + method);
   }));
   report = _.uniqWith(report, (a, b) => a.node === b.node);
   const maxInputVariableLength = report.reduce((acc, n) => {
@@ -166,14 +174,12 @@ function stringifyValue(v) {
   return v.toString();
 }
 
-async function executeNode(node, method = 'backwards', environment, report) {
-  console.log('exec', node);
-  environment = environment || {};
-  report = report || [];
+async function executeNodeBackward(node, environment = {}, report = []) {
+  console.log('exec back', node);
   validateNode(node);
   const name = getNodeName(node);
   let func;
-  let nodeFunction
+  let nodeFunction;
   try {
     nodeFunction = getNodeFunctionRaw(node);
     const encodedSourceCode = btoa(nodeFunction);
@@ -188,19 +194,21 @@ async function executeNode(node, method = 'backwards', environment, report) {
     console.error(`syntax error in node "${name}"`, node);
     throw e;
   }
+  const inputs = {};
+  const orderedInputs = [];
   const deps = getNodeDependencies(node);
-  let inputs = {};
   await Promise.all(getNodeInputs(node).map(async (v) => {
     const depNode = deps.find(d => d.variables.includes(v)).node;
-    inputs[v] = (await executeNode(depNode, method, environment, report))[v];
+    inputs[v] = (await executeNodeBackward(depNode, environment, report))[v];
   }));
-  let outputs;
-  const orderedInputs = [];
-  getFunctionParams(getNodeFunctionRaw(node)).forEach(param => {
+  getFunctionParams(nodeFunction).forEach(param => {
     if (param in inputs) {
       orderedInputs.push(inputs[param]);
+    } else {
+      console.error('input not found:', param);
     }
   });
+  let outputs;
   try {
     if (isAsyncFunction(getNodeFunction(node))) {
       outputs = await func(environment, orderedInputs);
@@ -219,19 +227,96 @@ async function executeNode(node, method = 'backwards', environment, report) {
   });
   return outputs;
 }
+
+async function executeNodeForward(node, availableInputs = {}, environment = {}, report = []) {
+  console.log('exec forward', node);
+  validateNode(node);
+  const rawFunc = getNodeFunctionRaw(node);
+  let func = getNodeFunction(node);
+  const availableInputsVariables = Object.keys(availableInputs);
+  let inputs = getFunctionParams(rawFunc);
+  const missingInputs = inputs.filter(v => !availableInputsVariables.includes(v));
+  const deps = getNodeDependencies(node);
+  let needExecution = missingInputs.map(v => {
+    const r = deps.find(d => d.variables.includes(v));
+    if(!r || !r.node) {
+      console.error("error while forward executing node", node, "missing input", v,"with no found dependency");
+      throw new Error("error while forward executing node missing input: " + v + ", with no found dependency");
+    }
+    return r.node;
+  });
+  needExecution = _.uniqWith(needExecution, _.isEqual)
+  await Promise.all(needExecution.map(async (n) => {
+    for (const [k, v] of Object.entries(await executeNodeBackward(n, environment, report))) {
+      if (missingInputs.includes(k))
+        availableInputs[k] = v;
+    }
+  }));
+  const orderedInputs = {};
+  getFunctionParams(rawFunc).forEach(param => {
+    if (param in availableInputs) {
+      orderedInputs[param] = availableInputs[param];
+    } else {
+      console.error('input not found:', param);
+    }
+  });
+  let outputs
+  const name = getNodeName(node);
+  let nodeFunction = func;
+  try {
+    const encodedSourceCode = btoa(rawFunc);
+    const sourceCode = `(function runner(env, inputs) {
+        return (${rawFunc})(...inputs)
+      })`;
+    func = eval?.(sourceCode
+      + `
+        //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}
+        //# sourceURL=process.js`);
+  } catch (e) {
+    console.error(`syntax error in node "${name}"`, node);
+    throw e;
+  }
+  try {
+    if (isAsyncFunction(nodeFunction)) {
+      outputs = await func(environment, Object.values(orderedInputs));
+    } else {
+      outputs = func(environment, Object.values(orderedInputs));
+    }
+  } catch (e) {
+    console.error(`error while executing node "${name}"`, node);
+    throw e;
+  }
+  report.push({
+    node: node,
+    inputs: _.cloneDeep(orderedInputs),
+    outputs: _.cloneDeep(outputs),
+  });
+  await Promise.all(getNextNodes(node).map(async (dep) => {
+    await executeNodeForward(dep.node, outputs, environment, report);
+  }));
+  return outputs;
+}
+
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
 function getNodeDependencies(node) {
   return getIncomingArrows(node).map(arr => {
     return { variables: getArrowVariables(arr), node: getStartingNode(arr) };
   });
 }
 
+function getNextNodes(node) {
+  return getOutgoingArrows(node).map(arr => {
+    return { variables: getArrowVariables(arr), node: getEndingNode(arr) };
+  });
+}
+
 function executeSimulation() {
   getNodes()
     .filter(isLeaf)
-    .forEach(executeNode);
+    .forEach(executeNodeBackward);
 }
 
 function deleteNode(editorWindow, node) {
@@ -607,18 +692,20 @@ function onVariableNameChange() {
 function isNode(elem) {
   return elem.matches('.object-circle');
 }
+
 function getNodeFunction(node) {
   validateNode(node);
   try {
     const func = getNodeFunctionRaw(node);
     const encodedSourceCode = btoa(func);
     return eval?.('(' + func + ')'
-      + `\n\n//# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
+      + `    //# sourceMappingURL=data:application/json;base64,${encodedSourceCode}\n//# sourceURL=process.js`);
   } catch (e) {
-    console.error("Syntax error in node function:", node);
+    console.error('Syntax error in node function:', node);
     throw e;
   }
 }
+
 function trySelectObject(editorWindow, object) {
   if (object.classList.contains('selectable')) {
     editorWindow
@@ -1172,6 +1259,7 @@ function cloneEditorForSave(editor) {
       }
     });
   executeBtn.style.display = 'none';
+  executionMethodSel.style.display = 'none';
 
   for (const v of [...editor.querySelectorAll('.arrow .variable-name')]) {
     const variable = v.querySelector('.value').value;
@@ -1301,6 +1389,7 @@ function setupEditor(editor) {
             }
           });
         executeBtn.style.display = 'none';
+        executionMethodSel.style.display = 'none';
       }
       lastIsDrag = false;
     })

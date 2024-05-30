@@ -22,6 +22,9 @@ function isAsyncFunction(func) {
 }
 
 function getFunctionParams(func) {
+  if(typeof func === 'function') {
+    func = func.toString();
+  }
   if (typeof func !== 'string') {
     console.error('\'func\' not a string', func);
     throw new Error('\'func\' not a string');
