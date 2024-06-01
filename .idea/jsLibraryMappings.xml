@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="JavaScriptLibraryMappings">
-    <file url="PROJECT" libraries="{@babel/standalone, interact-js, monaco-editor, require.js, sandboxjs}" />
+    <file url="PROJECT" libraries="{@babel/standalone, dropzone, interact-js, monaco-editor, require.js, sandboxjs}" />
   </component>
 </project>

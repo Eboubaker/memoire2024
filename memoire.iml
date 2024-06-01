@@ -9,5 +9,6 @@
     <orderEntry type="library" name="@babel/standalone" level="application" />
     <orderEntry type="library" name="require.js" level="application" />
     <orderEntry type="library" name="sandboxjs" level="application" />
+    <orderEntry type="library" name="dropzone" level="application" />
   </component>
 </module>

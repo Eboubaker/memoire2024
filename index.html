@@ -1,6 +1,10 @@
 <html lang='en'>
 <head>
   <title>Memoire</title>
+  <link rel='apple-touch-icon' sizes='180x180' href='ico/apple-touch-icon.png'>
+  <link rel='icon' type='image/png' sizes='32x32' href='ico/favicon-32x32.png'>
+  <link rel='icon' type='image/png' sizes='16x16' href='ico/favicon-16x16.png'>
+  <link rel='manifest' href='ico/site.webmanifest'>
   <style lang='scss'>
       .active-object {
           stroke-width: 1;
@@ -24,8 +28,13 @@
       #executeBtn {
           display: none;
       }
+
       #execution-method {
           display: none;
+      }
+
+      .value.different {
+          background-color: rgba(255, 0, 0, 0.52);
       }
 
       .variable-name .value {
@@ -67,6 +76,45 @@
       }
 
       #editDialog .modal-container {
+          position: absolute;
+          min-height: 0px;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+      }
+
+      /**/
+      #resultsDialog {
+          z-index: 10;
+          width: 100%;
+          height: 100%;
+          position: absolute;
+          top: 0;
+          left: 0;
+          overflow: hidden;
+      }
+
+      #resultsDialog .overlay {
+          position: relative;
+          top: 0;
+          left: 0;
+          background-color: rgba(51, 51, 51, 0.2);
+          width: 100%;
+          height: 100%;
+      }
+
+      #resultsDialog .modal {
+          /*min-width: 60vw;*/
+          padding: 1rem 3rem;
+          height: min-content;
+          background-color: white;
+      }
+
+      #resultsDialog .modal-container {
           position: absolute;
           min-height: 0px;
           top: 0;
@@ -121,6 +169,16 @@
 
       .touch-action-none {
           touch-action: none;
+      }
+
+      .closeBtn-cont {
+          display: flex;
+          justify-content: right;
+          width: 100%;
+      }
+
+      .closeBtn {
+          margin-top: 1rem;
       }
 
       .trash-zone.can-accept {
@@ -194,15 +252,19 @@
       .variables-table tbody tr:last-child * {
           border-bottom: none !important;
       }
+
       .variables-cell .variable.output:last-child .value {
           border-bottom: none !important;
       }
+
       .variables-cell .variable.output:first-child .value {
           border-top: none !important;
       }
+
       .variables-cell .variable.input:first-child .value {
           border-top: none !important;
       }
+
       .variables-cell .variable.input:last-child .value {
           border-bottom: none !important;
       }
@@ -212,6 +274,8 @@
           vertical-align: top;
       }
   </style>
+  <script src='http_unpkg.com_dropzone@5_dist_dropzone.js'></script>
+  <!--  <link rel="stylesheet" href="https://unpkg.com/dropzone@5/dist/min/dropzone.min.css" type="text/css" />-->
 </head>
 <body style='margin: 0; padding: 0'>
 <svg
@@ -272,7 +336,7 @@
         height='60'
       />
       <text class='nodeName' x='50' y='70' dominant-baseline='middle' text-anchor='middle'
-            style='font-size: 0.7rem;stroke-width: .5'>
+            style='font-size: 0.7rem;stroke-width: .3'>
         Node
       </text>
       <g class='code' data-code='' display='none' visibility='hidden'></g>
@@ -359,31 +423,47 @@
       <table class='results'>
         <thead>
         <tr>
-          <th></th>
+          <th>Node</th>
           <th>&nbsp;Inputs</th>
           <th>Outputs</th>
         </tr>
         </thead>
         <tbody>
-        <tr class='node-row' v-for='(r, index) of report' :key='r.node.id'>
+        <tr>
+          <th></th>
+          <td class='variables-cell sim-cell'>
+            <table class='variables-table sim-table'>
+              <thead>
+              <tr>
+                <th :style="'width:'+maxInputVariableLength+'ch'"></th>
+                <th :style="'width:'+maxInputValueLength+'ch'" v-for='(r, i) of lastReports'>Sim{{ i+1 }}</th>
+              </tr>
+              </thead>
+            </table>
+          </td>
+          <td class='variables-cell sim-cell'>
+            <table class='variables-table sim-table'>
+              <thead>
+              <tr>
+                <th :style="'width:'+maxOutputVariableLength+'ch'"></th>
+                <th :style="'width:'+maxOutputValueLength+'ch'" v-for='(r, i) of lastReports'>Sim{{ i+1 }}</th>
+              </tr>
+              </thead>
+            </table>
+          </td>
+        </tr>
+        <tr class='node-row' v-for='(r, i) of lastReports[0]' :key='r.node.id'>
           <th class='node-name'>{{ getNodeName(r.node) }}</th>
           <td class='variables-cell'>
             <table class='variables-table'>
-              <!--              <td class='variables-cell sim-cell'>-->
-              <!--                <table class='variables-table sim-table'>-->
-              <!--                  <thead>-->
-              <!--                  <tr>-->
-              <!--                    <th></th>-->
-              <!--                    <th>Sim1</th>-->
-              <!--                    <th>Sim2</th>-->
-              <!--                  </tr>-->
-              <!--                  </thead>-->
-              <!--                </table>-->
-              <!--              </td>-->
               <tbody>
               <tr class='variable input' v-for='name of Object.keys(r.inputs)' :key='name'>
                 <th class='name' :style="'width:'+maxInputVariableLength+'ch'">{{ name }}</th>
-                <td class='value' :style="'width:'+maxInputValueLength+'ch'">{{ stringifyValue(r.inputs[name]) }}</td>
+                <td class='value' :style="'width:'+maxInputValueLength+'ch'"
+                    v-for='(lr, ii) of lastReports'
+                    :class='{different: lastReports.length > 1 && stringifyValue(lastReports[0][i].inputs[name]) !== stringifyValue(lastReports[1][i].inputs[name]) }'>
+                  {{ stringifyValue(lr[i].inputs[name]) }}
+                </td>
                 <!--                <td class='value'>150</td>-->
               </tr>
               </tbody>
@@ -394,7 +474,13 @@
               <tbody>
               <tr class='variable output' v-for='name of Object.keys(r.outputs)' :key='name'>
                 <th class='name' :style="'width:'+maxOutputVariableLength+'ch'">{{ name }}</th>
-                <td class='value' :style="'width:'+maxOutputValueLength+'ch'">{{ stringifyValue(r.outputs[name]) }}</td>
+                <!--                <td class='value' :style="'width:'+maxOutputValueLength+'ch'">{{ stringifyValue(r.outputs[name]) }}</td>-->
+                <td class='value' :style="'width:'+maxOutputValueLength+'ch'"
+                    v-for='(lr, ii) of lastReports'
+                    :class='{different: lastReports.length > 1 && stringifyValue(lastReports[0][i].outputs[name]) !== stringifyValue(lastReports[1][i].outputs[name]) }'>
+                  {{ stringifyValue(lr[i].outputs[name]) }}
+                </td>
+
                 <!--                <td class='value'>200</td>-->
               </tr>
               </tbody>
@@ -403,6 +489,10 @@
         </tr>
         </tbody>
       </table>
+      <div class='closeBtn-cont'>
+        <button class='closeBtn' onclick='closeDialog(true)' style='margin-right: 2px'>Clear Memory and Close</button>
+        <button class='closeBtn' onclick='closeDialog()'>Close</button>
+      </div>
     </div>
   </div>
 </div>
@@ -412,13 +502,13 @@
 <script src='ast.js'></script>
 <script>
   let oldD = window['define'];
-  window['define'] = undefined
+  window['define'] = undefined;
 </script>
 <script src='lodash.min.js'></script>
 <!--<script src='https://cdn.jsdelivr.net/npm/sandboxjs@5.3.0/index.min.js'></script>-->
 <script>
-  window['define'] = oldD
+  window['define'] = oldD;
 </script>
-<script src='index.js'></script>
+<script defer src='index.js'></script>
 </body>
 </html>

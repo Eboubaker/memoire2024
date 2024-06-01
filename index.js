@@ -7,6 +7,7 @@ const editDialog = document.getElementById('editDialog');
  * @type {SVGSVGElement}
  */
 let mainEditor = document.querySelector('.editor');
+let lastReports = [];
 
 const gCircle = mainEditor.querySelector('.object-circle');
 const centerX = mainEditor.querySelector('.object-circle>circle').cx.baseVal
@@ -41,7 +42,6 @@ randomIdDiv.style.height = '300px';
 randomIdDiv.style.border = '1px solid black';
 let codeEditor;
 require(['vs/editor/editor.main'], (ed) => {
-  console.log('loaded ', ed);
   codeEditor = monaco.editor.create(document.getElementById(randomIdDiv.id), {
     value: ``,
     language: 'javascript',
@@ -77,12 +77,15 @@ const executionMethodSel = document.querySelector('#execution-method');
 
 function onNodeSelected(node) {
   validateNode(node);
+  console.log("sel", node);
   executeBtn.style.display = 'block';
   executionMethodSel.style.display = 'block';
 }
 
 function onNodeDeselected(node) {
   validateNode(node);
+  // console.log("de-sel", node);
+  // debugger;
   if ([...getOwnerWindow(node).querySelectorAll('.selected')].length === 0) {
     executeBtn.style.display = 'none';
     executionMethodSel.style.display = 'none';
@@ -102,70 +105,75 @@ clearBtn.addEventListener('click', () => {
     window.location.reload();
     console.error(e);
   } finally {
-    localStorage.clear();
+    setTimeout(() => localStorage.clear(), 600)
   }
 });
 let app;
 executeBtn.addEventListener('click', async () => {
   let method = document.querySelector('#execution-method').value;
-  let report = [];
-  const env = {};
-  await Promise.all(getNodes().filter(n => n.matches('.selected')).map(async (n) => {
-    if(method === 'backward')
-      await executeNodeBackward(n, env, report);
-    else if(method === 'forward')
-      await executeNodeForward(n, [], env, report);
-    else
-      throw new Error("unknown execution method:" + method);
-  }));
-  report = _.uniqWith(report, (a, b) => a.node === b.node);
-  const maxInputVariableLength = report.reduce((acc, n) => {
-    const l = Object.keys(n.inputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
-    return acc > l ? acc : l;
-  }, 0);
-  const maxInputValueLength = report.reduce((acc, n) => {
-    const l = Object.values(n.inputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
-    return acc > l ? acc : l;
-  }, 0);
-  console.log('maxInputVariableLength', maxInputVariableLength);
-  console.log('maxInputValueLength', maxInputValueLength);
-  const maxOutputVariableLength = report.reduce((acc, n) => {
-    const l = Object.keys(n.outputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
-    return acc > l ? acc : l;
-  }, 0);
-  const maxOutputValueLength = report.reduce((acc, n) => {
-    const l = Object.values(n.outputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
-    return acc > l ? acc : l;
-  }, 0);
-  console.log('maxOutputVariableLength', maxOutputVariableLength);
-  console.log('maxOutputValueLength', maxOutputValueLength);
-  if (app) {
-    app.unmount();
-    document.querySelector('#resultsDialog')?.remove();
-  }
-  const d = document.querySelector('#resultsDialog-template').cloneNode(true);
-  document.body.appendChild(d);
-  d.id = 'resultsDialog';
-  d.style.display = 'block';
-  app = createApp({
-    setup() {
-      return {
-        report,
-        maxInputVariableLength,
-        maxInputValueLength,
-        maxOutputVariableLength,
-        maxOutputValueLength,
-      };
-    },
-    methods: {
-      getNodeName,
-      stringifyValue,
-    },
-  });
-  app.mount(d);
-  console.log(report);
+  let nodes = getNodes().filter(n => n.matches('.selected'));
+  await UIExecuteNode(nodes, method);
 });
-
+async function UIExecuteNode(nodes = [], method = 'backward') {
+    let report = [];
+    const env = {};
+    await Promise.all(nodes.map(async (n) => {
+      if(method === 'backward')
+        await executeNodeBackward(n, env, report);
+      else if(method === 'forward')
+        await executeNodeForward(n, [], env, report);
+      else
+        throw new Error("unknown execution method:" + method);
+    }));
+    report = _.uniqWith(report, (a, b) => a.node === b.node);
+    const maxInputVariableLength = report.reduce((acc, n) => {
+      const l = Object.keys(n.inputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
+      return acc > l ? acc : l;
+    }, 0);
+    const maxInputValueLength = report.reduce((acc, n) => {
+      const l = Object.values(n.inputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
+      return acc > l ? acc : l;
+    }, 0);
+    console.log('maxInputVariableLength', maxInputVariableLength);
+    console.log('maxInputValueLength', maxInputValueLength);
+    const maxOutputVariableLength = report.reduce((acc, n) => {
+      const l = Object.keys(n.outputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
+      return acc > l ? acc : l;
+    }, 0);
+    const maxOutputValueLength = report.reduce((acc, n) => {
+      const l = Object.values(n.outputs).reduce((acc, k) => acc > stringifyValue(k).length ? acc : stringifyValue(k).length, 0);
+      return acc > l ? acc : l;
+    }, 0);
+    console.log('maxOutputVariableLength', maxOutputVariableLength);
+    console.log('maxOutputValueLength', maxOutputValueLength);
+    if (app) {
+      app.unmount();
+      document.querySelector('#resultsDialog')?.remove();
+    }
+    const d = document.querySelector('#resultsDialog-template').cloneNode(true);
+    document.body.appendChild(d);
+    d.id = 'resultsDialog';
+    d.style.display = 'block';
+  lastReports.push(report);
+  app = createApp({
+      setup() {
+        return {
+          report,
+          maxInputVariableLength,
+          maxInputValueLength,
+          maxOutputVariableLength,
+          maxOutputValueLength,
+          lastReports
+        };
+      },
+      methods: {
+        getNodeName,
+        stringifyValue,
+      },
+    });
+    app.mount(d);
+    console.log(report);
+}
 function stringifyValue(v) {
   if (typeof v === 'undefined')
     return 'undefined';
@@ -335,7 +343,7 @@ function deleteNode(editorWindow, node) {
       .filter((x) => x.length)
       .map((id) =>
         editorWindow.querySelector(`.arrow-handle[data-handle-id='${id}']`),
-      );
+      ).filter(h => !!h);
     for (const h of handles) {
       removeObject(editorWindow, h.closest('.arrow'));
     }
@@ -640,9 +648,11 @@ function detachArrowHandle(editorWindow, handle, anchorPoint) {
   const arrow = getArrow(handle);
   const end = getEndingNode(arrow);
   console.log('detach');
-  getArrowVariables(arrow).forEach(v => {
-    updateNodeFunction(end, removeFuncParam, v);
-  });
+  if(end) {
+    getArrowVariables(arrow).forEach(v => {
+      updateNodeFunction(end, removeFuncParam, v);
+    });
+  }
   onEditorUpdated(editorWindow);
 }
 
@@ -807,7 +817,7 @@ function getEndingNode(arrow) {
     .getAttribute('data-attached-to');
   return document
     .querySelector(`.anchor-point[data-anchor-id="${id}"]`)
-    .closest('.object-circle');
+    ?.closest('.object-circle');
 }
 
 function getArrowVariables(arrow) {
@@ -976,13 +986,13 @@ function addObjectInteractions(editorWindow, obj, template) {
     addArrowHandleInteraction(editorWindow, obj.querySelector('.arrow-handle-start'));
     addArrowHandleInteraction(editorWindow, obj.querySelector('.arrow-handle-end'));
   }
-  let lastIsDrag = false;
   const interaction = interact(obj).on('mouseup', (event) => {
     if (!lastIsDrag) {
       trySelectObject(editorWindow, event.currentTarget);
       event.stopPropagation();
     }
-    lastIsDrag = false;
+    // debugger;
+    // lastIsDrag = false;
   });
 
   interaction
@@ -1013,6 +1023,9 @@ function addObjectInteractions(editorWindow, obj, template) {
         event.currentTarget.classList.remove('dragging');
         onEditorUpdated(editorWindow);
         lastIsDrag = true;
+        if(!document.querySelector('.selected')) {
+          event.currentTarget.classList.add('selected');
+        }
       })
       .on(['dragmove'], function(event) {
         const target = event.currentTarget;
@@ -1080,7 +1093,7 @@ function makeNewElementInteraction(editorWindow, target, template = undefined) {
       nextAnchorId = nextAnchorId + 1;
     }
     editorWindow.setAttribute('data-next-anchor-id', nextAnchorId);
-    target.setAttribute('id', nextNodeId);
+    target.setAttribute('data-node-id', nextNodeId);
     editorWindow.setAttribute('data-next-node-id', 1 + nextNodeId);
   }
   const ret = addObjectInteractions(editorWindow, target, template);
@@ -1170,6 +1183,7 @@ function removeObject(editorWindow, obj) {
     throw new Error('how to remove this?: ' + obj);
   }
   obj.remove();
+  onEditorUpdated(editorWindow);
 }
 
 window.addEventListener('keydown', function(event) {
@@ -1224,8 +1238,21 @@ document.body.addEventListener('dragover', function dropHandler(ev) {
 });
 document.body.addEventListener('drop', dropHandler);
 mainEditor.addEventListener('drop', dropHandler);
+document.querySelector('#actionBar').addEventListener('drop', dropHandler);
+
+let dz = new Dropzone('body', {
+  paramName: "file", // The name that will be used to transfer the file
+  maxFilesize: 2, // MB
+  addedfile: file => {
+    console.log("file", file);
+  },
+  url: '/'
+})
 
 function dropHandler(ev) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  ev.stopImmediatePropagation();
   console.log('File(s) dropped');
   // Prevent default behavior (Prevent file from being opened)
   let file;
@@ -1255,9 +1282,10 @@ function cloneEditorForSave(editor) {
     .forEach((e) => {
       e.classList.remove('selected');
       if (isNode(e)) {
-        onNodeDeselected();
+        onNodeDeselected(e);
       }
     });
+  // editor.style.height = 'initial';
   executeBtn.style.display = 'none';
   executionMethodSel.style.display = 'none';
 
@@ -1274,6 +1302,8 @@ function afterEditorLoad(editor) {
   setupEditor(editor);
   return editor;
 }
+
+let lastIsDrag = false;
 
 function setupEditor(editor) {
   for (const e of [...editor.querySelectorAll('.template.draggable')]) {
@@ -1375,7 +1405,6 @@ function setupEditor(editor) {
       // draggableElement.remove();
     },
   });
-  let lastIsDrag = false;
   interact(editor)
     .on(['mouseup'], function(event) {
       console.log('editor onMouseUp', event);
@@ -1391,6 +1420,7 @@ function setupEditor(editor) {
         executeBtn.style.display = 'none';
         executionMethodSel.style.display = 'none';
       }
+      // debugger;
       lastIsDrag = false;
     })
     .draggable({
@@ -1500,9 +1530,20 @@ function saveToCache(editor) {
   localStorage.setItem('cached-editor', data);
 }
 
-const cache = localStorage.getItem('cached-editor');
-if (cache) {
-  loadEditor(cache);
-} else {
-  setupEditor(mainEditor);
+window.onload = async () => {
+  const cache = localStorage.getItem('cached-editor');
+  if (cache) {
+    loadEditor(cache);
+    // await UIExecuteNode([document.querySelector("[data-node-id='8']")], 'forward');
+  } else {
+    setupEditor(mainEditor);
+  }
+}
+
+function closeDialog(clear) {
+  app.unmount();
+  document.querySelector('#resultsDialog').remove();
+  if(clear) {
+    lastReports.splice(0, lastReports.length);
+  }
 }
